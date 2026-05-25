@@ -868,8 +868,10 @@ spec:
 
 L7 (HTTP) load balancer. Routes external traffic to internal Services based on host and path.
 
+> **⚠️ NOTE (2026):** The `kubernetes/ingress-nginx` controller was **retired and archived in March 2026**. No further releases or security patches. New projects should use **Traefik**, **AGIC**, or **Gateway API**. See Q20a–20g below for details.
+
 ```
-Internet ──► Ingress Controller (nginx pod)
+Internet ──► Ingress Controller (Traefik / AGIC / etc.)
                     │
              ┌──────┴──────┐
              │  Ingress     │
@@ -971,6 +973,388 @@ spec:
 | RBAC | Single resource | Split: Gateway (infra) + Route (dev) |
 | Features | Basic | Traffic splitting, header matching, mirrors |
 | Status | Maintenance mode | Active development |
+
+---
+
+### NGINX Ingress Controller Retirement & Alternatives
+
+**20a. What happened to NGINX Ingress Controller?**
+
+```
+NGINX Ingress Controller (kubernetes/ingress-nginx) — RETIRED:
+
+  Timeline:
+  ┌──────────────────────────────────────────────────────────────────┐
+  │  Nov 2025   Retirement announced by Kubernetes project          │
+  │  Mar 2026   Repository archived on GitHub (read-only)           │
+  │  Post-Mar   No further releases, no bugfixes, NO security       │
+  │  2026       patches — even for critical CVEs                    │
+  └──────────────────────────────────────────────────────────────────┘
+
+  What this means:
+  ✅ Existing deployments still work (not removed from clusters)
+  ✅ Helm charts + container images remain available
+  ❌ No new features or bug fixes
+  ❌ No security vulnerability patches going forward
+  ❌ New projects should NOT use ingress-nginx
+  ❌ Existing users should plan migration
+
+  Official recommendation:
+  "If you are not already using ingress-nginx, you should NOT be
+   deploying it. Instead, identify a Gateway API implementation."
+```
+
+**Why was it retired?**
+- The Ingress API itself is now considered limited — Gateway API is its successor
+- NGINX Inc. (F5) shifted focus to their commercial NGINX products
+- The open-source community maintainer pool shrank
+- Security concerns: the project assumed all Ingress-creating users are cluster admins (unsafe in multi-tenant environments)
+
+---
+
+**20b. What are the alternatives to NGINX Ingress Controller?**
+
+```
+Ingress Controller Alternatives (2026):
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                                                                     │
+  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────────┐ │
+  │  │   Traefik     │  │ Azure AGIC   │  │ Gateway API (standard)  │ │
+  │  │              │  │              │  │                          │ │
+  │  │ ★ Most       │  │ ★ Azure-     │  │ ★ K8s-native successor  │ │
+  │  │   popular    │  │   native     │  │   to Ingress API        │ │
+  │  │   replacement│  │   managed    │  │                          │ │
+  │  └──────────────┘  └──────────────┘  └──────────────────────────┘ │
+  │                                                                     │
+  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────────┐ │
+  │  │ Envoy/       │  │ HAProxy      │  │ Kong                    │ │
+  │  │ Contour      │  │ Ingress      │  │ Ingress Controller      │ │
+  │  │              │  │              │  │                          │ │
+  │  │ ★ Envoy-     │  │ ★ HAProxy    │  │ ★ API Gateway +         │ │
+  │  │   based,     │  │   based,     │  │   Ingress combined     │ │
+  │  │   CNCF       │  │   enterprise │  │                          │ │
+  │  └──────────────┘  └──────────────┘  └──────────────────────────┘ │
+  │                                                                     │
+  └─────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+**20c. What is Traefik and why is everyone moving to it?**
+
+Traefik is a modern, cloud-native reverse proxy and ingress controller. It's the **most popular replacement** for nginx-ingress because:
+
+```
+Why Traefik Is Winning:
+
+  1. Gateway API support (native, first-class)
+  2. Auto-discovery — watches K8s API, auto-configures routes
+  3. Built-in Let's Encrypt (automatic TLS, no cert-manager needed)
+  4. Dashboard — real-time traffic visualization out of the box
+  5. Middleware system — rate limiting, auth, headers, retry, circuit breaker
+  6. Multi-protocol — HTTP, TCP, UDP, gRPC, WebSocket
+  7. No reload needed — dynamic config, no NGINX-style reload/restart
+  8. Active development + large community (CNCF project)
+  9. Easy migration from nginx-ingress (IngressRoute CRD or standard Ingress)
+  10. Lightweight — single binary, low resource footprint
+```
+
+```yaml
+# Traefik IngressRoute (CRD — Traefik-native way):
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: myapp
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`app.example.com`) && PathPrefix(`/api`)
+      kind: Rule
+      services:
+        - name: api-svc
+          port: 80
+      middlewares:
+        - name: rate-limit
+    - match: Host(`app.example.com`)
+      kind: Rule
+      services:
+        - name: web-svc
+          port: 80
+  tls:
+    certResolver: letsencrypt        # Auto TLS — no cert-manager needed!
+```
+
+```yaml
+# Traefik Middleware example (rate limiting + auth):
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: rate-limit
+spec:
+  rateLimit:
+    average: 100
+    burst: 200
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: basic-auth
+spec:
+  basicAuth:
+    secret: auth-secret
+```
+
+```
+Traefik vs NGINX Ingress:
+
+  Feature               NGINX Ingress        Traefik
+  ─────────────────────────────────────────────────────────
+  Status                RETIRED (Mar 2026)   Active (CNCF)
+  Gateway API           ❌ Never added        ✅ Native
+  Auto TLS (ACME)       ❌ Needs cert-manager ✅ Built-in
+  Dynamic config        ❌ Requires reload     ✅ Hot reload
+  Dashboard             ❌ No                  ✅ Built-in
+  Middleware CRDs       ❌ Annotations only    ✅ First-class
+  TCP/UDP routing       ⚠️  Limited             ✅ Full support
+  Multi-protocol        ⚠️  HTTP mainly         ✅ HTTP/TCP/UDP/gRPC
+  Config approach       Annotations           CRDs + labels
+  Learning curve        Low                   Low-medium
+  Community             Declining             Growing
+```
+
+---
+
+**20d. What is AGIC (Azure Application Gateway Ingress Controller)?**
+
+AGIC is Azure's **native** ingress controller that uses **Azure Application Gateway** (a cloud L7 load balancer) as the ingress controller instead of running a proxy pod inside the cluster.
+
+```
+AGIC Architecture:
+
+  Internet                     Azure Managed
+  ┌──────────┐               ┌──────────────────────────┐
+  │  Client  │──────────────▶│  Azure Application       │
+  │          │               │  Gateway (L7 LB)         │
+  └──────────┘               │  - WAF (optional)        │
+                             │  - SSL termination       │
+                             │  - URL-based routing     │
+                             │  - Auto-scaling          │
+                             └──────────┬───────────────┘
+                                        │
+                             ┌──────────▼───────────────┐
+                             │  AKS Cluster             │
+                             │                          │
+                             │  AGIC Controller Pod     │
+                             │  (watches Ingress        │
+                             │   resources → configures │
+                             │   App Gateway via API)   │
+                             │                          │
+                             │  ┌─────┐  ┌─────┐       │
+                             │  │Pod A│  │Pod B│        │
+                             │  └─────┘  └─────┘       │
+                             └──────────────────────────┘
+
+  Key difference from Traefik/NGINX:
+  ┌────────────────────────────────────────────────────────────┐
+  │  NGINX/Traefik: proxy runs INSIDE the cluster (pod)       │
+  │  AGIC: proxy runs OUTSIDE the cluster (Azure managed)     │
+  │        → no proxy pods consuming cluster resources         │
+  │        → Azure manages scaling, patching, HA               │
+  └────────────────────────────────────────────────────────────┘
+```
+
+```yaml
+# AGIC Ingress example:
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: myapp
+  annotations:
+    kubernetes.io/ingress.class: azure/application-gateway
+    appgw.ingress.kubernetes.io/ssl-redirect: "true"
+    appgw.ingress.kubernetes.io/backend-protocol: "http"
+    appgw.ingress.kubernetes.io/waf-policy-for-path: "/subscriptions/.../myWafPolicy"
+spec:
+  tls:
+  - hosts: [app.example.com]
+    secretName: app-tls
+  rules:
+  - host: app.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: myapp-svc
+            port:
+              number: 80
+```
+
+---
+
+**20e. Comparison — Which ingress controller to choose?**
+
+```
+Decision Matrix:
+
+  Scenario                          Best Choice
+  ──────────────────────────────────────────────────────────
+  New project, any cloud            Traefik + Gateway API
+  AKS (Azure) with WAF needed      AGIC (App Gateway)
+  AKS (Azure) without WAF          Traefik on AKS
+  Multi-cloud / hybrid             Traefik or Envoy/Contour
+  Service mesh already (Istio)     Istio Gateway (built-in)
+  API gateway features needed      Kong or Traefik Enterprise
+  Existing nginx-ingress           Migrate to Traefik
+```
+
+| Feature | Traefik | AGIC (Azure) | Contour (Envoy) | Kong |
+|---------|---------|-------------|-----------------|------|
+| Gateway API | ✅ Native | ⚠️ Preview | ✅ Native | ✅ Native |
+| Cloud-agnostic | ✅ | ❌ Azure only | ✅ | ✅ |
+| WAF built-in | ❌ | ✅ (Azure WAF) | ❌ | ✅ (plugin) |
+| Auto TLS/ACME | ✅ Built-in | ⚠️ Manual/KV | ✅ cert-manager | ⚠️ Plugin |
+| Dashboard | ✅ Built-in | Azure Portal | ❌ | ✅ |
+| Runs as pod | ✅ In-cluster | ❌ External LB | ✅ In-cluster | ✅ In-cluster |
+| Cost | Free/OSS | App Gateway $$ | Free/OSS | Free/Enterprise |
+| Best for | General purpose | Azure-native | Envoy users | API management |
+
+---
+
+**20f. How to migrate from NGINX Ingress to Traefik?**
+
+```
+Migration Steps:
+
+  1. Install Traefik alongside nginx-ingress (both can coexist)
+     helm install traefik traefik/traefik -n traefik --create-namespace
+
+  2. Test with one service:
+     - Change ingressClassName: nginx → ingressClassName: traefik
+     - OR use Traefik IngressRoute CRDs for more features
+     - Verify routing works
+
+  3. Convert nginx-specific annotations:
+     nginx.ingress.kubernetes.io/rewrite-target  →  Traefik middleware (StripPrefix)
+     nginx.ingress.kubernetes.io/ssl-redirect    →  Traefik middleware (RedirectScheme)
+     nginx.ingress.kubernetes.io/rate-limit      →  Traefik middleware (RateLimit)
+     nginx.ingress.kubernetes.io/proxy-body-size →  Traefik middleware (Buffering)
+
+  4. Migrate all Ingress resources one by one
+
+  5. Remove nginx-ingress controller
+     helm uninstall ingress-nginx -n ingress-nginx
+```
+
+---
+
+**20g. What is Kubernetes Gateway API? (The future)**
+
+Gateway API is the **official successor to the Ingress API** in Kubernetes. GA since K8s 1.27.
+
+```
+Gateway API Resource Model:
+
+  ┌─────────────────────────────────────────────────────────┐
+  │  GatewayClass        (infra team defines)               │
+  │  "Which controller?" — traefik, envoy, istio, etc.     │
+  └───────────────┬─────────────────────────────────────────┘
+                  │
+  ┌───────────────▼─────────────────────────────────────────┐
+  │  Gateway              (platform team creates)           │
+  │  "Where to listen?"  — ports, TLS config, addresses    │
+  │  Like a load balancer instance                         │
+  └───────────────┬─────────────────────────────────────────┘
+                  │
+  ┌───────────────▼─────────────────────────────────────────┐
+  │  HTTPRoute / TCPRoute / GRPCRoute   (dev team creates) │
+  │  "How to route?"    — host, path, headers, weights     │
+  │  Attaches to Gateway                                   │
+  └─────────────────────────────────────────────────────────┘
+
+  RBAC Separation (why it's better):
+  ┌──────────────┬──────────────────────────────────────────┐
+  │ Infra team   │ Creates GatewayClass + Gateway           │
+  │ (cluster     │ Controls which IPs, ports, TLS           │
+  │  admin)      │                                          │
+  ├──────────────┼──────────────────────────────────────────┤
+  │ Dev team     │ Creates HTTPRoute only                   │
+  │ (namespace   │ Can only route to services in their      │
+  │  scoped)     │ namespace — no cluster-wide access       │
+  └──────────────┴──────────────────────────────────────────┘
+```
+
+```yaml
+# Gateway API example:
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: traefik
+spec:
+  controllerName: traefik.io/gateway-controller
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: my-gateway
+  namespace: infra
+spec:
+  gatewayClassName: traefik
+  listeners:
+  - name: https
+    protocol: HTTPS
+    port: 443
+    tls:
+      mode: Terminate
+      certificateRefs:
+      - name: wildcard-tls
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: myapp-route
+  namespace: app-team
+spec:
+  parentRefs:
+  - name: my-gateway
+    namespace: infra
+  hostnames: ["app.example.com"]
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /api
+    backendRefs:
+    - name: api-svc
+      port: 80
+      weight: 90             # Traffic splitting built-in!
+    - name: api-svc-canary
+      port: 80
+      weight: 10
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    backendRefs:
+    - name: web-svc
+      port: 80
+```
+
+```
+Why Gateway API > Ingress:
+
+  ✅ Role-based: infra team vs dev team separation
+  ✅ Multi-protocol: HTTP, TCP, UDP, gRPC, TLS passthrough
+  ✅ Traffic splitting: native canary/blue-green by weight
+  ✅ Header-based routing: match on headers, query params
+  ✅ Cross-namespace references: controlled sharing
+  ✅ Portable: works with Traefik, Envoy, Istio, Cilium, etc.
+  ✅ Extensible: custom policies via policy attachment
+  ❌ Ingress: single resource, HTTP only, annotations = messy
+```
 
 ---
 
