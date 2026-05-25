@@ -2204,3 +2204,1285 @@ Developer ──► Git Push ──► PR Review ──► Merge
 Rollback = git revert → ArgoCD auto-syncs
 Git = single source of truth
 ```
+
+---
+
+# MANIFEST PRACTICE REFERENCE (All Resource Types)
+
+> Quick-copy practice manifests for every K8s resource type. Use `kubectl apply -f <file>` to test.
+
+---
+
+### Pod (standalone — rare in production, good for debugging)
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: debug-pod
+  labels:
+    app: debug
+spec:
+  containers:
+  - name: busybox
+    image: busybox:1.36
+    command: ["sleep", "3600"]
+    resources:
+      requests: { cpu: 50m, memory: 64Mi }
+      limits: { cpu: 100m, memory: 128Mi }
+  restartPolicy: Never
+```
+
+---
+
+### ReplicaSet (rarely used directly — Deployments manage these)
+
+```yaml
+apiVersion: apps/v1
+kind: ReplicaSet
+metadata:
+  name: nginx-rs
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: nginx
+      tier: frontend
+  template:
+    metadata:
+      labels:
+        app: nginx
+        tier: frontend
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.27-alpine
+        ports:
+        - containerPort: 80
+        resources:
+          requests: { cpu: 50m, memory: 64Mi }
+          limits: { cpu: 200m, memory: 128Mi }
+```
+
+```
+When to use ReplicaSet directly vs Deployment:
+  ReplicaSet: Almost NEVER directly. Only if you need custom update logic.
+  Deployment: ALWAYS for stateless apps. It creates ReplicaSets for you.
+
+  Deployment
+       │ creates
+       ▼
+  ReplicaSet (rev 1)  ──► 3 Pods
+       │ on update, creates new RS
+       ▼
+  ReplicaSet (rev 2)  ──► 3 Pods (new)
+  ReplicaSet (rev 1)  ──► 0 Pods (scaled down, kept for rollback)
+```
+
+---
+
+### Deployment (stateless apps — most common)
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-server
+  labels:
+    app: api-server
+spec:
+  replicas: 3
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app: api-server
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1            # 1 extra pod during update
+      maxUnavailable: 0       # 0 downtime
+  template:
+    metadata:
+      labels:
+        app: api-server
+        version: v2.1.0
+    spec:
+      serviceAccountName: api-sa
+      containers:
+      - name: api
+        image: myregistry/api-server:v2.1.0
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: DB_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: api-config
+              key: db_host
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: api-secret
+              key: password
+        resources:
+          requests: { cpu: 200m, memory: 256Mi }
+          limits: { cpu: 1, memory: 512Mi }
+        startupProbe:
+          httpGet: { path: /healthz, port: 8080 }
+          failureThreshold: 30
+          periodSeconds: 5
+        livenessProbe:
+          httpGet: { path: /healthz, port: 8080 }
+          periodSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet: { path: /ready, port: 8080 }
+          periodSeconds: 5
+        volumeMounts:
+        - name: config-vol
+          mountPath: /etc/config
+          readOnly: true
+      volumes:
+      - name: config-vol
+        configMap:
+          name: api-config
+```
+
+---
+
+### StatefulSet (databases, stateful apps — stable identity + storage)
+
+```yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+spec:
+  serviceName: redis-headless       # Required — must match headless Service
+  replicas: 3
+  selector:
+    matchLabels:
+      app: redis
+  updateStrategy:
+    type: RollingUpdate
+  podManagementPolicy: OrderedReady  # redis-0, redis-1, redis-2 in order
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        ports:
+        - containerPort: 6379
+          name: redis
+        resources:
+          requests: { cpu: 100m, memory: 128Mi }
+          limits: { cpu: 500m, memory: 256Mi }
+        volumeMounts:
+        - name: redis-data
+          mountPath: /data
+  volumeClaimTemplates:             # Each pod gets its OWN PVC
+  - metadata:
+      name: redis-data
+    spec:
+      accessModes: [ReadWriteOnce]
+      storageClassName: standard
+      resources:
+        requests:
+          storage: 5Gi
+---
+# Headless Service (required for StatefulSet DNS)
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-headless
+spec:
+  clusterIP: None                    # Headless!
+  selector:
+    app: redis
+  ports:
+  - port: 6379
+    targetPort: 6379
+```
+
+```
+StatefulSet gives:
+  ✅ Stable pod names:    redis-0, redis-1, redis-2 (not random)
+  ✅ Stable DNS:          redis-0.redis-headless.namespace.svc.cluster.local
+  ✅ Ordered startup:     redis-0 → redis-1 → redis-2
+  ✅ Ordered shutdown:    redis-2 → redis-1 → redis-0
+  ✅ Stable storage:      Each pod keeps its PVC even after restart
+```
+
+---
+
+### DaemonSet (one pod per node — logging, monitoring, networking)
+
+```yaml
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-exporter
+spec:
+  selector:
+    matchLabels:
+      app: node-exporter
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app: node-exporter
+    spec:
+      hostNetwork: true              # Access node network metrics
+      tolerations:
+      - operator: Exists             # Run on ALL nodes (even tainted ones)
+      containers:
+      - name: node-exporter
+        image: prom/node-exporter:v1.8.0
+        ports:
+        - containerPort: 9100
+          hostPort: 9100
+        resources:
+          requests: { cpu: 50m, memory: 64Mi }
+          limits: { cpu: 200m, memory: 128Mi }
+        volumeMounts:
+        - name: proc
+          mountPath: /host/proc
+          readOnly: true
+        - name: sys
+          mountPath: /host/sys
+          readOnly: true
+      volumes:
+      - name: proc
+        hostPath: { path: /proc }
+      - name: sys
+        hostPath: { path: /sys }
+```
+
+```
+DaemonSet use cases:
+  ✅ Log collectors:      Fluent Bit, Fluentd
+  ✅ Monitoring agents:   Prometheus Node Exporter, Datadog Agent
+  ✅ Network plugins:     Calico, Cilium, kube-proxy
+  ✅ Storage drivers:     CSI node plugins
+  ✅ Security agents:     Falco, Twistlock
+```
+
+---
+
+### Job (run-to-completion — one-time tasks)
+
+```yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: db-migration
+spec:
+  backoffLimit: 3                   # Retry up to 3 times on failure
+  activeDeadlineSeconds: 300        # Timeout after 5 minutes
+  ttlSecondsAfterFinished: 3600    # Auto-delete after 1 hour
+  template:
+    spec:
+      containers:
+      - name: migrate
+        image: myapp/migrate:v1.0
+        command: ["python", "manage.py", "migrate"]
+        env:
+        - name: DB_URL
+          valueFrom:
+            secretKeyRef:
+              name: db-secret
+              key: url
+      restartPolicy: Never          # Never or OnFailure
+```
+
+```yaml
+# Parallel Job (process 10 items with 3 workers)
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: batch-process
+spec:
+  completions: 10                   # Total items to process
+  parallelism: 3                    # Run 3 pods at a time
+  template:
+    spec:
+      containers:
+      - name: worker
+        image: myapp/worker:v1.0
+      restartPolicy: OnFailure
+```
+
+---
+
+### CronJob (scheduled recurring tasks)
+
+```yaml
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: nightly-backup
+spec:
+  schedule: "0 2 * * *"            # 2 AM daily
+  concurrencyPolicy: Forbid         # Don't run if previous still running
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  startingDeadlineSeconds: 200      # Miss deadline = skip
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: backup
+            image: myapp/backup:v1.0
+            command: ["/bin/sh", "-c", "pg_dump $DB_URL > /backup/db.sql"]
+            volumeMounts:
+            - name: backup-vol
+              mountPath: /backup
+          volumes:
+          - name: backup-vol
+            persistentVolumeClaim:
+              claimName: backup-pvc
+          restartPolicy: OnFailure
+```
+
+```
+CronJob schedule cheat sheet:
+  ┌───── minute (0-59)
+  │ ┌───── hour (0-23)
+  │ │ ┌───── day of month (1-31)
+  │ │ │ ┌───── month (1-12)
+  │ │ │ │ ┌───── day of week (0-6, Sun=0)
+  │ │ │ │ │
+  * * * * *
+
+  "0 * * * *"     = every hour
+  "*/15 * * * *"  = every 15 minutes
+  "0 0 * * *"     = midnight daily
+  "0 2 * * 1"     = 2 AM every Monday
+  "0 0 1 * *"     = midnight on 1st of month
+```
+
+---
+
+### Service — All Types
+
+```yaml
+# ClusterIP (default — internal only)
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-svc
+spec:
+  type: ClusterIP                    # Default
+  selector:
+    app: api-server
+  ports:
+  - name: http
+    port: 80                         # Service port (what clients use)
+    targetPort: 8080                 # Container port
+    protocol: TCP
+---
+# NodePort (expose on every node's IP)
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-nodeport
+spec:
+  type: NodePort
+  selector:
+    app: api-server
+  ports:
+  - port: 80
+    targetPort: 8080
+    nodePort: 30080                   # 30000-32767 range
+---
+# LoadBalancer (cloud provider provisions external LB)
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-lb
+  annotations:
+    service.beta.kubernetes.io/azure-load-balancer-internal: "true"  # Internal LB
+spec:
+  type: LoadBalancer
+  selector:
+    app: api-server
+  ports:
+  - port: 80
+    targetPort: 8080
+---
+# Headless Service (for StatefulSet — direct pod DNS)
+apiVersion: v1
+kind: Service
+metadata:
+  name: db-headless
+spec:
+  clusterIP: None                    # No virtual IP — returns pod IPs directly
+  selector:
+    app: postgres
+  ports:
+  - port: 5432
+---
+# ExternalName (DNS alias to external service)
+apiVersion: v1
+kind: Service
+metadata:
+  name: external-db
+spec:
+  type: ExternalName
+  externalName: db.prod.example.com  # CNAME record — no selector
+```
+
+```
+Service Types Summary:
+
+  Type           Access              Use Case
+  ─────────────────────────────────────────────────────────────
+  ClusterIP      Internal only       Default, app-to-app
+  NodePort       Node IP:30000+      Dev/test, direct access
+  LoadBalancer   External LB IP      Production, cloud
+  Headless       Pod DNS records     StatefulSet, direct pod access
+  ExternalName   DNS CNAME           External service alias
+```
+
+---
+
+### ConfigMap
+
+```yaml
+# From literal values
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+data:
+  APP_ENV: production
+  LOG_LEVEL: info
+  MAX_CONNECTIONS: "100"
+  # Multi-line config file
+  nginx.conf: |
+    server {
+      listen 80;
+      location / {
+        proxy_pass http://localhost:8080;
+      }
+    }
+```
+
+```bash
+# Create from command line
+kubectl create configmap app-config \
+  --from-literal=APP_ENV=production \
+  --from-file=nginx.conf=./nginx.conf
+```
+
+---
+
+### Secret
+
+```yaml
+# Opaque secret (generic key-value)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: db-credentials
+type: Opaque
+data:
+  username: YWRtaW4=              # echo -n "admin" | base64
+  password: cGFzc3dvcmQ=          # echo -n "password" | base64
+---
+# TLS secret
+apiVersion: v1
+kind: Secret
+metadata:
+  name: tls-cert
+type: kubernetes.io/tls
+data:
+  tls.crt: <base64-encoded-cert>
+  tls.key: <base64-encoded-key>
+---
+# Docker registry credentials
+apiVersion: v1
+kind: Secret
+metadata:
+  name: registry-cred
+type: kubernetes.io/dockerconfigjson
+data:
+  .dockerconfigjson: <base64-encoded-docker-config>
+```
+
+```bash
+# Create from command line
+kubectl create secret generic db-credentials \
+  --from-literal=username=admin \
+  --from-literal=password=s3cur3p@ss
+
+# Create TLS secret
+kubectl create secret tls tls-cert \
+  --cert=./tls.crt --key=./tls.key
+
+# Create registry secret
+kubectl create secret docker-registry registry-cred \
+  --docker-server=myregistry.azurecr.io \
+  --docker-username=user \
+  --docker-password=pass
+```
+
+---
+
+### PersistentVolume + PersistentVolumeClaim
+
+```yaml
+# PV — Cluster-scoped storage resource (admin creates)
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: nfs-pv
+spec:
+  capacity:
+    storage: 50Gi
+  accessModes:
+  - ReadWriteMany                    # RWX — multiple pods can write
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: nfs
+  nfs:
+    server: 10.0.0.5
+    path: /exports/data
+---
+# PVC — Namespace-scoped claim (dev creates)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: app-data
+spec:
+  accessModes:
+  - ReadWriteOnce                    # RWO — single node can write
+  storageClassName: managed-premium  # Azure managed disk
+  resources:
+    requests:
+      storage: 20Gi
+---
+# Using PVC in a Pod
+apiVersion: v1
+kind: Pod
+metadata:
+  name: app
+spec:
+  containers:
+  - name: app
+    image: myapp:v1
+    volumeMounts:
+    - name: data
+      mountPath: /app/data
+  volumes:
+  - name: data
+    persistentVolumeClaim:
+      claimName: app-data
+```
+
+```
+PV/PVC Lifecycle:
+
+  Admin creates PV          Dev creates PVC         PVC binds to PV
+  (or StorageClass           (requests size +         (auto or manual)
+   provisions dynamically)   access mode)
+
+  ┌────────────────┐        ┌────────────────┐
+  │ PV: 50Gi       │◄──────│ PVC: 20Gi      │
+  │ RWO            │ bind  │ RWO            │
+  │ Available      │       │ Bound          │
+  └────────────────┘        └───────┬────────┘
+                                    │ mount
+                             ┌──────▼──────┐
+                             │    Pod       │
+                             │ /app/data   │
+                             └─────────────┘
+
+  Access Modes:
+  RWO (ReadWriteOnce)  — one node reads/writes (most disks)
+  ROX (ReadOnlyMany)   — many nodes read
+  RWX (ReadWriteMany)  — many nodes read/write (NFS, Azure Files)
+```
+
+---
+
+### StorageClass (dynamic provisioning)
+
+```yaml
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: fast-ssd
+provisioner: disk.csi.azure.com     # Azure Managed Disk
+parameters:
+  skuName: Premium_LRS              # Premium SSD
+  kind: Managed
+reclaimPolicy: Delete               # Delete disk when PVC deleted
+volumeBindingMode: WaitForFirstConsumer  # Bind only when pod scheduled
+allowVolumeExpansion: true          # Allow resize
+```
+
+---
+
+### HorizontalPodAutoscaler (HPA)
+
+```yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: api-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: api-server
+  minReplicas: 2
+  maxReplicas: 10
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300   # Wait 5 min before scaling down
+      policies:
+      - type: Percent
+        value: 25                        # Remove max 25% of pods at once
+        periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 0      # Scale up immediately
+      policies:
+      - type: Pods
+        value: 4                         # Add max 4 pods at once
+        periodSeconds: 60
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70           # Target 70% CPU
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80           # Target 80% memory
+```
+
+```bash
+# Quick create from CLI
+kubectl autoscale deployment api-server --min=2 --max=10 --cpu-percent=70
+```
+
+---
+
+### PodDisruptionBudget (PDB)
+
+```yaml
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: api-pdb
+spec:
+  selector:
+    matchLabels:
+      app: api-server
+  minAvailable: 2                    # At least 2 pods must be running
+  # OR use: maxUnavailable: 1       # At most 1 pod can be down
+```
+
+```
+PDB protects against VOLUNTARY disruptions:
+  ✅ kubectl drain (node maintenance)
+  ✅ Cluster autoscaler scaling down
+  ✅ kubectl delete pod (when managed by controller)
+
+  PDB does NOT protect against:
+  ❌ Node crash (involuntary)
+  ❌ OOM kill
+  ❌ Hardware failure
+```
+
+---
+
+### ResourceQuota (namespace-level limits)
+
+```yaml
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: team-quota
+  namespace: team-alpha
+spec:
+  hard:
+    requests.cpu: "10"               # Total CPU requests in namespace
+    requests.memory: 20Gi            # Total memory requests
+    limits.cpu: "20"                 # Total CPU limits
+    limits.memory: 40Gi              # Total memory limits
+    pods: "50"                       # Max 50 pods
+    services: "20"                   # Max 20 services
+    persistentvolumeclaims: "10"     # Max 10 PVCs
+    configmaps: "20"
+    secrets: "20"
+```
+
+---
+
+### LimitRange (per-pod/container defaults and limits)
+
+```yaml
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-limits
+  namespace: team-alpha
+spec:
+  limits:
+  - type: Container
+    default:                         # Default LIMITS if not specified
+      cpu: 500m
+      memory: 256Mi
+    defaultRequest:                  # Default REQUESTS if not specified
+      cpu: 100m
+      memory: 128Mi
+    max:                             # Maximum any container can request
+      cpu: 2
+      memory: 2Gi
+    min:                             # Minimum any container must request
+      cpu: 50m
+      memory: 64Mi
+  - type: Pod
+    max:
+      cpu: 4
+      memory: 4Gi
+```
+
+```
+ResourceQuota vs LimitRange:
+
+  ResourceQuota: Total limits for entire namespace
+                 "Team gets max 10 CPUs total"
+  LimitRange:    Per-pod/container defaults and limits
+                 "Each container gets max 2 CPUs"
+```
+
+---
+
+### ServiceAccount + RBAC (Role, ClusterRole, Bindings)
+
+```yaml
+# ServiceAccount (identity for pods)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: api-sa
+  namespace: production
+  annotations:
+    # Azure Workload Identity
+    azure.workload.identity/client-id: "<managed-identity-client-id>"
+---
+# Role (namespace-scoped permissions)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: deployer
+  namespace: production
+rules:
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets"]
+  verbs: ["get", "list", "watch", "create", "update", "patch"]
+- apiGroups: [""]
+  resources: ["pods", "pods/log", "services", "configmaps"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get"]                     # Read-only for secrets
+---
+# RoleBinding (bind Role to ServiceAccount)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: deployer-binding
+  namespace: production
+subjects:
+- kind: ServiceAccount
+  name: api-sa
+  namespace: production
+roleRef:
+  kind: Role
+  name: deployer
+  apiGroup: rbac.authorization.k8s.io
+---
+# ClusterRole (cluster-wide permissions)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: node-viewer
+rules:
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["metrics.k8s.io"]
+  resources: ["nodes", "pods"]
+  verbs: ["get", "list"]
+---
+# ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: monitoring-node-viewer
+subjects:
+- kind: ServiceAccount
+  name: prometheus-sa
+  namespace: monitoring
+roleRef:
+  kind: ClusterRole
+  name: node-viewer
+  apiGroup: rbac.authorization.k8s.io
+```
+
+```
+RBAC Model:
+
+  WHO (Subject)         CAN DO WHAT (Role)         WHERE (Binding)
+  ──────────────────────────────────────────────────────────────────
+  ServiceAccount        Role                       RoleBinding
+  User                  (namespace-scoped)         (namespace-scoped)
+  Group                 ClusterRole                ClusterRoleBinding
+                        (cluster-wide)             (cluster-wide)
+
+  Role + RoleBinding            = permissions in ONE namespace
+  ClusterRole + ClusterRoleBinding = permissions across ALL namespaces
+  ClusterRole + RoleBinding     = reusable role, applied to ONE namespace
+```
+
+---
+
+### NetworkPolicy (firewall rules for pods)
+
+```yaml
+# Allow frontend → api, deny everything else to api pods
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: api-policy
+  namespace: production
+spec:
+  podSelector:
+    matchLabels:
+      app: api-server
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: frontend              # Allow from frontend pods
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring           # Allow from monitoring namespace
+    ports:
+    - protocol: TCP
+      port: 8080
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: postgres              # Allow to database
+    ports:
+    - protocol: TCP
+      port: 5432
+  - to:                              # Allow DNS resolution
+    - namespaceSelector: {}
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+---
+# Deny all ingress (default deny)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: deny-all
+  namespace: production
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+```
+
+---
+
+### Ingress (with Traefik — post NGINX retirement)
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: app-ingress
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  ingressClassName: traefik
+  tls:
+  - hosts: [app.example.com, api.example.com]
+    secretName: app-tls
+  rules:
+  - host: app.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service: { name: web-svc, port: { number: 80 } }
+  - host: api.example.com
+    http:
+      paths:
+      - path: /v1
+        pathType: Prefix
+        backend:
+          service: { name: api-v1-svc, port: { number: 80 } }
+      - path: /v2
+        pathType: Prefix
+        backend:
+          service: { name: api-v2-svc, port: { number: 80 } }
+```
+
+---
+
+### Gateway API (HTTPRoute — successor to Ingress)
+
+```yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: traefik
+spec:
+  controllerName: traefik.io/gateway-controller
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: production-gateway
+  namespace: infra
+spec:
+  gatewayClassName: traefik
+  listeners:
+  - name: https
+    protocol: HTTPS
+    port: 443
+    tls:
+      mode: Terminate
+      certificateRefs:
+      - name: wildcard-tls
+    allowedRoutes:
+      namespaces:
+        from: Selector
+        selector:
+          matchLabels:
+            gateway-access: "true"   # Only labeled namespaces can attach
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: api-route
+  namespace: app-team
+spec:
+  parentRefs:
+  - name: production-gateway
+    namespace: infra
+  hostnames: ["api.example.com"]
+  rules:
+  - matches:
+    - path: { type: PathPrefix, value: /api }
+      headers:
+      - name: X-Version
+        value: "v2"
+    backendRefs:
+    - name: api-v2-svc
+      port: 80
+  - matches:
+    - path: { type: PathPrefix, value: /api }
+    backendRefs:
+    - name: api-v1-svc
+      port: 80
+      weight: 90                     # 90% traffic
+    - name: api-v2-svc
+      port: 80
+      weight: 10                     # 10% canary
+```
+
+---
+
+### Affinity, Tolerations, Node Selector
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gpu-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: gpu-app
+  template:
+    metadata:
+      labels:
+        app: gpu-app
+    spec:
+      # Simple node selection
+      nodeSelector:
+        gpu: "true"
+
+      # Advanced — prefer SSD nodes, require zone
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: topology.kubernetes.io/zone
+                operator: In
+                values: [us-east-1a, us-east-1b]
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 1
+            preference:
+              matchExpressions:
+              - key: disktype
+                operator: In
+                values: [ssd]
+        # Anti-affinity — spread replicas across nodes
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: gpu-app
+              topologyKey: kubernetes.io/hostname
+
+      # Tolerate tainted nodes
+      tolerations:
+      - key: "gpu"
+        operator: "Equal"
+        value: "true"
+        effect: "NoSchedule"
+
+      containers:
+      - name: app
+        image: myapp:v1
+        resources:
+          limits:
+            nvidia.com/gpu: 1        # Request GPU
+```
+
+```
+Scheduling Controls Cheat Sheet:
+
+  nodeSelector:     Simple key=value match (must match)
+  nodeAffinity:     Advanced rules (required or preferred, operators)
+  podAffinity:      Schedule NEAR other pods (same node/zone)
+  podAntiAffinity:  Schedule AWAY from other pods (spread out)
+  taints:           Node says "keep pods away unless tolerated"
+  tolerations:      Pod says "I can handle that taint"
+
+  Taint + Toleration example:
+  kubectl taint nodes gpu-node-1 gpu=true:NoSchedule
+  → Only pods with matching toleration can schedule on gpu-node-1
+```
+
+---
+
+### Pod Security (securityContext)
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: secure-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: secure-app
+  template:
+    metadata:
+      labels:
+        app: secure-app
+    spec:
+      securityContext:                # Pod-level
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 3000
+        fsGroup: 2000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: app
+        image: myapp:v1
+        securityContext:              # Container-level
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp             # Writable tmp since rootfs is read-only
+      volumes:
+      - name: tmp
+        emptyDir: {}
+```
+
+---
+
+### Kustomize (base + overlays)
+
+```yaml
+# base/kustomization.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- deployment.yaml
+- service.yaml
+- configmap.yaml
+commonLabels:
+  team: platform
+---
+# overlays/dev/kustomization.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- ../../base
+namePrefix: dev-
+namespace: dev
+patches:
+- target:
+    kind: Deployment
+    name: api-server
+  patch: |
+    - op: replace
+      path: /spec/replicas
+      value: 1
+    - op: replace
+      path: /spec/template/spec/containers/0/resources/requests/cpu
+      value: 100m
+configMapGenerator:
+- name: app-config
+  behavior: merge
+  literals:
+  - APP_ENV=development
+  - LOG_LEVEL=debug
+---
+# overlays/prod/kustomization.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- ../../base
+namePrefix: prod-
+namespace: production
+patches:
+- target:
+    kind: Deployment
+    name: api-server
+  patch: |
+    - op: replace
+      path: /spec/replicas
+      value: 5
+configMapGenerator:
+- name: app-config
+  behavior: merge
+  literals:
+  - APP_ENV=production
+  - LOG_LEVEL=warn
+```
+
+```bash
+# Apply dev overlay
+kubectl apply -k overlays/dev/
+
+# Apply prod overlay
+kubectl apply -k overlays/prod/
+
+# Preview rendered YAML
+kubectl kustomize overlays/prod/
+```
+
+```
+Kustomize Project Structure:
+
+  k8s/
+  ├── base/
+  │   ├── kustomization.yaml
+  │   ├── deployment.yaml
+  │   ├── service.yaml
+  │   └── configmap.yaml
+  └── overlays/
+      ├── dev/
+      │   └── kustomization.yaml    (replicas: 1, debug logging)
+      ├── staging/
+      │   └── kustomization.yaml    (replicas: 2, info logging)
+      └── prod/
+          └── kustomization.yaml    (replicas: 5, warn logging, PDB)
+```
+
+---
+
+### kubectl Cheat Sheet
+
+```bash
+# ─── GET ─────────────────────────────────────────────────────
+kubectl get pods -A                          # All namespaces
+kubectl get pods -o wide                     # IP + node info
+kubectl get pods -l app=api                  # By label
+kubectl get all -n production                # All resources in ns
+kubectl get deploy,svc,ing,cm,secret -n prod # Specific types
+kubectl get events --sort-by=.lastTimestamp  # Recent events
+
+# ─── CREATE / APPLY ──────────────────────────────────────────
+kubectl apply -f manifest.yaml               # Declarative (preferred)
+kubectl create deployment nginx --image=nginx:1.27 --replicas=3
+kubectl expose deployment nginx --port=80 --target-port=80 --type=ClusterIP
+
+# ─── INSPECT ──────────────────────────────────────────────────
+kubectl describe pod <name>                  # Events, conditions
+kubectl logs <pod> -c <container> --previous # Previous crash logs
+kubectl logs -l app=api --all-containers     # All pods with label
+kubectl top pods -n production               # CPU/memory usage
+kubectl get pod <name> -o yaml               # Full spec
+
+# ─── DEBUG ────────────────────────────────────────────────────
+kubectl exec -it <pod> -- sh                 # Shell into pod
+kubectl exec <pod> -- curl http://svc:80     # Test connectivity
+kubectl port-forward svc/api-svc 8080:80     # Local access
+kubectl debug <pod> --image=busybox -it      # Ephemeral debug container
+
+# ─── EDIT / PATCH ────────────────────────────────────────────
+kubectl set image deploy/api api=myapp:v2    # Update image
+kubectl scale deploy/api --replicas=5        # Manual scale
+kubectl rollout status deploy/api            # Watch rollout
+kubectl rollout undo deploy/api              # Rollback
+kubectl rollout history deploy/api           # Revision history
+kubectl patch deploy api -p '{"spec":{"replicas":5}}'
+
+# ─── DELETE ───────────────────────────────────────────────────
+kubectl delete pod <name>                    # Delete pod
+kubectl delete pod <name> --force --grace-period=0  # Force kill
+kubectl delete -f manifest.yaml              # Delete from file
+
+# ─── CONTEXT / NAMESPACE ─────────────────────────────────────
+kubectl config get-contexts                  # List contexts
+kubectl config use-context prod-cluster      # Switch cluster
+kubectl config set-context --current --namespace=prod  # Default ns
+
+# ─── DRY RUN (generate YAML) ─────────────────────────────────
+kubectl create deploy nginx --image=nginx --dry-run=client -o yaml > deploy.yaml
+kubectl create svc clusterip api --tcp=80:8080 --dry-run=client -o yaml
+kubectl run test --image=busybox --dry-run=client -o yaml -- sleep 3600
+```

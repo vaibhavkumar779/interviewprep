@@ -296,11 +296,13 @@ Option 2: IPVS mode (better for large clusters)
 
 ## 8. Ingress — L7 Routing
 
+> **⚠️ UPDATE (2026):** The `kubernetes/ingress-nginx` controller was **retired and archived in March 2026**. No further releases or security patches. Use **Traefik**, **AGIC (Azure)**, or **Gateway API** instead. See answers.md Q20a–20g for full details.
+
 ```
 Internet
     │
     ▼
-┌──────────────── Ingress Controller (nginx/traefik) ────────────┐
+┌──────────────── Ingress Controller (Traefik/AGIC/Envoy) ───────┐
 │                                                                 │
 │  Rule: host=app.example.com, path=/api  →  api-svc:80         │
 │  Rule: host=app.example.com, path=/     →  web-svc:80         │
@@ -315,15 +317,15 @@ Internet
               └───────────┘   └───────────┘
 ```
 
+### Standard Ingress (still works with Traefik)
+
 ```yaml
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: myapp-ingress
-  annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /
 spec:
-  ingressClassName: nginx
+  ingressClassName: traefik         # ← use traefik instead of nginx
   tls:
   - hosts: [app.example.com]
     secretName: tls-secret
@@ -339,6 +341,41 @@ spec:
         pathType: Prefix
         backend:
           service: { name: web-svc, port: { number: 80 } }
+```
+
+### Gateway API (successor to Ingress — preferred for new projects)
+
+```yaml
+# Gateway API — the K8s-native future (GA since K8s 1.27)
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: myapp-route
+spec:
+  parentRefs:
+  - name: my-gateway
+  hostnames: ["app.example.com"]
+  rules:
+  - matches:
+    - path: { type: PathPrefix, value: /api }
+    backendRefs:
+    - name: api-svc
+      port: 80
+  - matches:
+    - path: { type: PathPrefix, value: / }
+    backendRefs:
+    - name: web-svc
+      port: 80
+```
+
+```
+Why Traefik is the top choice (2026):
+  ✅ Gateway API native support
+  ✅ Built-in Let's Encrypt (no cert-manager needed)
+  ✅ Built-in dashboard
+  ✅ Dynamic config (no reload/restart)
+  ✅ Middleware CRDs (rate limit, auth, headers)
+  ✅ Active CNCF project, growing community
 ```
 
 ---
@@ -744,7 +781,7 @@ kind: Ingress
 metadata:
   name: myapp-ingress
 spec:
-  ingressClassName: nginx
+  ingressClassName: traefik         # traefik (nginx-ingress retired Mar 2026)
   tls: [{ hosts: [app.example.com], secretName: tls-secret }]
   rules:
   - host: app.example.com
