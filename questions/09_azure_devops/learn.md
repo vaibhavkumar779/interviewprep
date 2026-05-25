@@ -405,3 +405,160 @@ curl -u :$PAT "https://dev.azure.com/myorg/myproject/_apis/build/builds?api-vers
 | Templates | ✅ Extends/includes | ✅ Reusable workflows | ✅ Shared libraries |
 | Cost | Free tier + paid | Free tier + paid | Free (infra cost) |
 | Best for | Enterprise, Azure shops | GitHub-centric teams | Complex/legacy |
+
+---
+
+## 12. Extends Templates (Reusable Pipelines)
+
+```yaml
+# templates/build-template.yml — reusable template
+parameters:
+  - name: buildConfiguration
+    type: string
+    default: 'Release'
+  - name: dotnetVersion
+    type: string
+    default: '8.0'
+
+stages:
+  - stage: Build
+    jobs:
+      - job: BuildJob
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - task: UseDotNet@2
+            inputs:
+              version: '${{ parameters.dotnetVersion }}'
+          - script: dotnet build --configuration ${{ parameters.buildConfiguration }}
+          - task: PublishBuildArtifacts@1
+            inputs:
+              pathToPublish: '$(Build.ArtifactStagingDirectory)'
+```
+
+```yaml
+# azure-pipelines.yml — consuming template
+trigger:
+  - main
+
+extends:
+  template: templates/build-template.yml
+  parameters:
+    buildConfiguration: 'Release'
+    dotnetVersion: '8.0'
+
+# "extends" enforces template as a required wrapper
+# Team can't skip security stages defined in template
+# Unlike "template:" includes, "extends:" is mandatory
+```
+
+---
+
+## 13. Deployment Strategies in Azure Pipelines
+
+```yaml
+# Rolling deployment
+- stage: Deploy
+  jobs:
+    - deployment: DeployWeb
+      environment: 'production'
+      strategy:
+        rolling:
+          maxParallel: 2          # Deploy to 2 targets at a time
+          deploy:
+            steps:
+              - script: ./deploy.sh
+```
+
+```yaml
+# Canary deployment
+- stage: Deploy
+  jobs:
+    - deployment: DeployCanary
+      environment: 'production'
+      strategy:
+        canary:
+          increments: [10, 20]    # 10% first, then 20%
+          deploy:
+            steps:
+              - script: ./deploy.sh
+          on:
+            success:
+              steps:
+                - script: echo "Canary healthy"
+            failure:
+              steps:
+                - script: ./rollback.sh
+```
+
+---
+
+## 14. Cache Task (Cache@2)
+
+```yaml
+# Cache npm dependencies across pipeline runs
+steps:
+  - task: Cache@2
+    inputs:
+      key: 'npm | "$(Agent.OS)" | package-lock.json'
+      path: '$(Pipeline.Workspace)/.npm'
+      restoreKeys: |
+        npm | "$(Agent.OS)"
+    displayName: 'Cache npm packages'
+
+  - script: npm ci --cache $(Pipeline.Workspace)/.npm
+    displayName: 'Install dependencies'
+
+# Cache pip
+  - task: Cache@2
+    inputs:
+      key: 'pip | "$(Agent.OS)" | requirements.txt'
+      path: '$(Pipeline.Workspace)/.pip'
+
+# Cache Docker layers
+  - task: Cache@2
+    inputs:
+      key: 'docker | "$(Agent.OS)" | Dockerfile'
+      path: '$(Pipeline.Workspace)/docker-cache'
+```
+
+---
+
+## 15. Docker & Kubernetes Tasks
+
+```yaml
+# Build and push Docker image
+steps:
+  - task: Docker@2
+    inputs:
+      containerRegistry: 'myACR'
+      repository: 'myapp'
+      command: 'buildAndPush'
+      Dockerfile: '**/Dockerfile'
+      tags: |
+        $(Build.BuildId)
+        latest
+
+# Deploy to Kubernetes
+  - task: KubernetesManifest@1
+    inputs:
+      action: 'deploy'
+      kubernetesServiceConnection: 'my-aks'
+      namespace: 'production'
+      manifests: |
+        k8s/deployment.yaml
+        k8s/service.yaml
+      containers: |
+        myacr.azurecr.io/myapp:$(Build.BuildId)
+
+# Helm deploy
+  - task: HelmDeploy@0
+    inputs:
+      connectionType: 'Kubernetes Service Connection'
+      namespace: 'production'
+      command: 'upgrade'
+      chartType: 'FilePath'
+      chartPath: 'charts/myapp'
+      releaseName: 'myapp'
+      overrideValues: 'image.tag=$(Build.BuildId)'
+```

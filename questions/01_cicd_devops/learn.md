@@ -340,3 +340,250 @@ Shift-Left:  Security ──► at every stage ──► continuous
 | **Variable Group** | Shared variables across pipelines |
 | **Secret** | Encrypted variable (API keys, passwords) |
 | **Cache** | Saved dependencies between runs (node_modules, pip cache) |
+
+---
+
+## 12. Deployment Strategies — Deep Dive
+
+```
+┌─── Rolling Update ──────────────────────────────────────────────┐
+│                                                                  │
+│  Replace pods one by one. No downtime if done right.            │
+│                                                                  │
+│  v1 v1 v1 v1  →  v2 v1 v1 v1  →  v2 v2 v1 v1  →  v2 v2 v2 v2 │
+│                                                                  │
+│  ✅ Zero downtime    ✅ Gradual    ❌ Two versions active        │
+│  K8s: strategy.type: RollingUpdate                              │
+└──────────────────────────────────────────────────────────────────┘
+
+┌─── Blue-Green ──────────────────────────────────────────────────┐
+│                                                                  │
+│  Two full environments. Switch traffic all at once.             │
+│                                                                  │
+│  LB ──► Blue (v1) ✅ live                                       │
+│         Green (v2) idle (testing)                               │
+│                                                                  │
+│  After verified:                                                │
+│  LB ──► Green (v2) ✅ live                                      │
+│         Blue (v1) idle (rollback ready)                         │
+│                                                                  │
+│  ✅ Instant rollback    ❌ 2x resources    ❌ DB schema tricky   │
+└──────────────────────────────────────────────────────────────────┘
+
+┌─── Canary ──────────────────────────────────────────────────────┐
+│                                                                  │
+│  Route small % of traffic to new version, monitor, expand.      │
+│                                                                  │
+│  Step 1:  95% → v1,  5% → v2  (canary)                         │
+│  Step 2:  75% → v1, 25% → v2  (if metrics OK)                  │
+│  Step 3:  50% → v1, 50% → v2                                   │
+│  Step 4:   0% → v1, 100%→ v2  (promote)                        │
+│                                                                  │
+│  ✅ Low risk   ✅ Data-driven   ❌ Complex routing               │
+│  Tools: Istio, Traefik, Argo Rollouts, Flagger                 │
+└──────────────────────────────────────────────────────────────────┘
+
+┌─── A/B Testing ─────────────────────────────────────────────────┐
+│                                                                  │
+│  Route by user attributes (header, cookie, geo, user ID).       │
+│  Measure business metrics (conversion, engagement), not just    │
+│  error rates.                                                    │
+│                                                                  │
+│  Users in US → v2 (new checkout)                                │
+│  Users in EU → v1 (old checkout)                                │
+│  Compare: conversion rate, revenue, bounce rate                 │
+│                                                                  │
+│  ✅ Business validation   ❌ Needs traffic routing + analytics   │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+| Strategy | Downtime | Rollback | Cost | When to Use |
+|----------|----------|----------|------|-------------|
+| Rolling | None | Slow (re-roll) | 1x | Default for most apps |
+| Blue-Green | None | Instant (switch LB) | 2x | Critical apps, fast rollback needed |
+| Canary | None | Fast (route back) | 1x + small | High-risk changes, data-driven teams |
+| Recreate | Yes | Slow | 1x | Dev/test, DB schema breaking changes |
+| A/B test | None | N/A | 1x+ | Feature validation, UX experiments |
+
+---
+
+## 13. Feature Flags
+
+```
+Feature Flag = runtime toggle to enable/disable features without deploy
+
+  if (featureFlags.isEnabled("new-checkout")) {
+      showNewCheckout();
+  } else {
+      showOldCheckout();
+  }
+
+  ┌─── Use Cases ─────────────────────────────────────────────┐
+  │  Kill switch:    Disable broken feature instantly          │
+  │  Gradual rollout: Enable for 5% → 25% → 100% of users   │
+  │  Beta testing:   Enable for specific user group           │
+  │  Trunk-based dev: Merge incomplete features behind flag   │
+  │  A/B testing:    Route users to different experiences     │
+  └───────────────────────────────────────────────────────────┘
+
+  Tools: LaunchDarkly, Unleash, Flagsmith, Azure App Configuration
+```
+
+---
+
+## 14. Immutable Infrastructure
+
+```
+Mutable:   Server deployed → SSH in → patch → configure → drift over time
+Immutable: Build image → deploy → if change needed → build NEW image → replace
+
+  Mutable (Pets):                    Immutable (Cattle):
+  ┌──────────────┐                  ┌──────────────┐
+  │ Server "web1"│                  │ Instance from │
+  │ SSH, patch,  │                  │ AMI/image v2  │
+  │ configure    │                  │               │
+  │ Unique state │                  │ Identical to  │
+  │ Hard to      │                  │ every other   │
+  │ reproduce    │                  │ instance      │
+  └──────────────┘                  └──────────────┘
+
+  Why immutable:
+  ✅ Reproducible (same image every time)
+  ✅ No configuration drift
+  ✅ Easy rollback (deploy previous image)
+  ✅ Testable (test the image, not the process)
+```
+
+---
+
+## 15. Build Once, Deploy Many (Artifact Promotion)
+
+```
+Artifact Promotion Pipeline:
+
+  Build ──► [artifact v1.2.3] ──► Dev ──► Staging ──► Prod
+                │                   │        │          │
+                │                  Same     Same       Same
+                │                 artifact  artifact   artifact
+                │
+            ❌ DO NOT rebuild for each environment
+            ✅ Build once, promote the SAME artifact
+
+  Why:
+  - Guarantees what you tested = what you deploy
+  - Environment differences via config (env vars, ConfigMap), not builds
+  - Faster deployments (no rebuild)
+```
+
+---
+
+## 16. Push-Based vs Pull-Based Deployment
+
+```
+Push-Based:                         Pull-Based (GitOps):
+┌────────────────────────┐         ┌────────────────────────┐
+│ CI tool pushes to      │         │ Agent in cluster pulls  │
+│ target environment     │         │ from Git repo           │
+│                        │         │                        │
+│ Jenkins → kubectl apply│         │ ArgoCD watches Git      │
+│                        │         │ Detects change → syncs  │
+│ CI needs cluster creds │         │ No external access      │
+│ Less secure            │         │ More secure             │
+│                        │         │                        │
+│ Tools: Jenkins, Azure  │         │ Tools: ArgoCD, Flux     │
+│ Pipelines              │         │                        │
+└────────────────────────┘         └────────────────────────┘
+```
+
+---
+
+## 17. DevOps Culture Concepts
+
+**Three Ways of DevOps** (Gene Kim):
+```
+1st Way: Flow        — optimize left-to-right (dev → ops → customer)
+                       Small batches, limit WIP, automation
+
+2nd Way: Feedback    — optimize right-to-left (customer → ops → dev)
+                       Fast feedback, monitoring, alerts, post-mortems
+
+3rd Way: Continual   — experimentation + learning
+Experimentation       Culture of innovation, blameless failures,
+                       practice makes improvement
+```
+
+**Blameless Post-Mortems**:
+```
+After every incident:
+  1. Timeline: What happened, when?
+  2. Root cause: WHY (5 Whys technique)
+  3. Impact: Who affected? How long?
+  4. What went well? What to improve?
+  5. Action items with owners + deadlines
+
+  ❌ "John broke production"
+  ✅ "The process allowed untested config to ship"
+```
+
+**Toil** (SRE concept):
+```
+Toil = manual, repetitive, automatable work that scales linearly
+  ❌ Manually provisioning VMs
+  ❌ SSH into servers to check logs
+  ❌ Copy-pasting YAML for new services
+
+  Google SRE rule: Keep toil < 50% of team's time
+  Solution: Automate! Templates, self-service, IaC
+```
+
+**Value Stream Mapping**:
+```
+Visualize entire delivery process → identify bottlenecks:
+
+  Idea → Design → Code → Review → Build → Test → Stage → Prod
+  [2d]   [3d]    [2d]   [1d]     [5m]   [30m]  [1d]    [2h]
+                          ↑                              ↑
+                    Wait: 1d                       Wait: 3d
+
+  Total lead time: 10 days | Actual work: 5 days | Waste: 5 days (50%!)
+```
+
+---
+
+## 18. Database Changes in CI/CD
+
+```
+Migration-Based Approach:
+  V1__create_users.sql
+  V2__add_email_column.sql
+  V3__create_orders.sql
+
+  Pipeline:
+  ┌──────────┐    ┌──────────┐    ┌──────────┐
+  │ Migrate  │ →  │ Deploy   │ →  │ Validate │
+  │ Database │    │ App v2   │    │ Health   │
+  └──────────┘    └──────────┘    └──────────┘
+
+  Rules:
+  1. Migrations BEFORE app deploy (Flyway/Liquibase)
+  2. Must be backward-compatible (expand-contract pattern)
+  3. Never drop columns used by current version
+  4. Always have rollback scripts
+  5. Test migrations in staging first
+```
+
+---
+
+## 19. ChatOps
+
+```
+Managing operations through chat (Slack/Teams) with bot integrations:
+
+  #deployments channel:
+  /deploy myapp staging       → triggers pipeline
+  /status myapp production    → shows current version
+  /rollback myapp production  → triggers rollback
+  /incident create P2         → creates incident
+
+  Benefits: visibility, audit trail, knowledge sharing, async collaboration
+```

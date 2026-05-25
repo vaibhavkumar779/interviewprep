@@ -520,3 +520,119 @@ ps aux --sort=-%mem | head -10
 # System uptime and load
 uptime    # load averages: 1min, 5min, 15min (should be < num CPUs)
 ```
+
+---
+
+## 15. grep / awk / sed Deep Dive
+
+```bash
+# ─── grep ───
+grep -r "error" /var/log/             # Recursive search
+grep -i "warning" app.log             # Case-insensitive
+grep -c "404" access.log              # Count matches
+grep -v "DEBUG" app.log               # Exclude (invert)
+grep -A3 -B1 "Exception" app.log     # 3 lines after, 1 before
+grep -E "error|warn|fatal" app.log   # Extended regex (multiple patterns)
+grep -P '\d{1,3}(\.\d{1,3}){3}' log # Perl regex (IP addresses)
+grep -l "TODO" *.py                   # List files with matches
+
+# ─── awk ───
+# Pattern: awk 'pattern { action }' file
+awk '{print $1, $4}' access.log                # Print columns 1 and 4
+awk -F: '{print $1, $3}' /etc/passwd            # Custom delimiter (:)
+awk '$9 >= 500' access.log                      # Filter: status >= 500
+awk '{sum += $10} END {print sum}' access.log   # Sum column 10
+awk '{count[$1]++} END {for (ip in count) print count[ip], ip}' access.log | sort -rn
+#                                                # Count requests per IP
+awk 'NR >= 10 && NR <= 20' file.txt             # Print lines 10-20
+
+# ─── sed ───
+sed 's/old/new/' file          # Replace first occurrence per line
+sed 's/old/new/g' file         # Replace all occurrences
+sed -i 's/old/new/g' file     # In-place edit
+sed -n '10,20p' file           # Print lines 10-20
+sed '/^#/d' config.yaml        # Delete comment lines
+sed '1i\# Header' file         # Insert at line 1
+
+# Combine: Find 5xx errors, extract IP + URL, count per IP
+grep ' 5[0-9][0-9] ' access.log | awk '{print $1}' | sort | uniq -c | sort -rn | head
+```
+
+---
+
+## 16. User & Group Management
+
+```bash
+# Users
+useradd -m -s /bin/bash devuser      # Create with home dir + shell
+passwd devuser                        # Set password
+usermod -aG docker devuser           # Add to group (append)
+userdel -r devuser                   # Delete user + home dir
+id devuser                            # Show UID, GID, groups
+whoami                                # Current user
+
+# Groups
+groupadd developers
+usermod -aG developers devuser
+groups devuser                        # List groups for user
+
+# Sudoers
+visudo                                # Safe edit /etc/sudoers
+# devuser ALL=(ALL) NOPASSWD: ALL    # Passwordless sudo
+# %developers ALL=(ALL) ALL          # Group-based sudo
+
+# /etc/passwd format:
+# username:x:UID:GID:comment:home:shell
+# /etc/shadow: encrypted passwords (root only)
+```
+
+---
+
+## 17. Linux Boot Process
+
+```
+┌─── Boot Sequence ─────────────────────────────────────────┐
+│                                                            │
+│  1. BIOS/UEFI    — hardware init, find boot device        │
+│  2. Bootloader   — GRUB loads kernel + initramfs          │
+│  3. Kernel       — hardware detection, mount root FS      │
+│  4. init/systemd — PID 1, starts services                 │
+│  5. Target       — multi-user.target (CLI) or             │
+│                    graphical.target (GUI)                  │
+│                                                            │
+│  systemd targets (like runlevels):                        │
+│  emergency.target → rescue.target → multi-user.target     │
+│                                      → graphical.target   │
+│                                                            │
+│  systemctl get-default              # Current target      │
+│  systemctl set-default multi-user   # Set boot target     │
+│  systemctl isolate rescue.target    # Switch now          │
+└────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 18. Kernel Tuning (sysctl)
+
+```bash
+# View current values
+sysctl -a | grep net.core
+sysctl net.ipv4.ip_forward
+
+# Set temporarily (until reboot)
+sysctl -w net.ipv4.ip_forward=1
+
+# Set permanently
+echo "net.ipv4.ip_forward = 1" >> /etc/sysctl.d/99-custom.conf
+sysctl -p /etc/sysctl.d/99-custom.conf
+
+# Common DevOps tuning:
+┌─── Parameter ──────────────────────────── Value ── Why ────────┐
+│ net.ipv4.ip_forward                      1    K8s/Docker needs│
+│ net.core.somaxconn                       65535 High connection │
+│ vm.max_map_count                         262144 Elasticsearch  │
+│ fs.file-max                              2097152 Many open files│
+│ net.ipv4.tcp_tw_reuse                    1    Reuse TIME_WAIT │
+│ vm.swappiness                            10   Prefer RAM > swap│
+└────────────────────────────────────────────────────────────────┘
+```

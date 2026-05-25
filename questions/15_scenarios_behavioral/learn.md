@@ -390,3 +390,282 @@ Each story should have:
   ✅ Lesson learned
   ✅ 2-3 minute delivery time
 ```
+
+---
+
+## 8. Incident Response Scenarios
+
+```
+┌─── Scenario: Pod OOMKilled ─────────────────────────────────┐
+│                                                              │
+│  Alert: Pod restarting with OOMKilled                       │
+│                                                              │
+│  1. kubectl describe pod myapp → OOMKilled (exit code 137) │
+│  2. kubectl top pod myapp → memory near limit              │
+│  3. Check: Is it a memory leak or genuinely needs more?    │
+│     - kubectl logs myapp --previous → check for leak signs │
+│     - Grafana: container_memory_working_set_bytes trend    │
+│  4. Short-term: Increase resources.limits.memory           │
+│  5. Long-term: Profile app, fix leak, add JVM/Go heap opts │
+│  6. Add HPA with memory scaling                             │
+└──────────────────────────────────────────────────────────────┘
+
+┌─── Scenario: Database Connection Exhaustion ────────────────┐
+│                                                              │
+│  Alert: App returning 500 errors, "connection pool exhausted"│
+│                                                              │
+│  1. Check DB connection count: SELECT count(*) FROM         │
+│     pg_stat_activity WHERE state = 'active';               │
+│  2. Identify: which services hold connections?             │
+│     pg_stat_activity → client_addr, query, wait_event      │
+│  3. Check: connection pool config (max pool size per pod)   │
+│     3 replicas × 20 pool → 60 connections vs DB max_conn   │
+│  4. Fix: Reduce pool size per pod OR increase DB max_conn  │
+│  5. Long-term: Use PgBouncer as connection pooler           │
+│  6. Add alerting: connections > 80% of max                  │
+└──────────────────────────────────────────────────────────────┘
+
+┌─── Scenario: Jenkins Master Down ───────────────────────────┐
+│                                                              │
+│  Alert: Jenkins URL unreachable, builds queued              │
+│                                                              │
+│  1. Check node/pod status: kubectl get pod -n jenkins       │
+│  2. Check events: kubectl describe pod jenkins-0            │
+│  3. Check disk: Jenkins home filled? (PVC usage)            │
+│  4. Check logs: kubectl logs jenkins-0 --previous           │
+│  5. Common causes: OOM, disk full, plugin crash, JVM heap  │
+│  6. Recovery: restart pod, check PVC, increase resources    │
+│  7. Prevention: JENKINS_HOME on PVC, regular plugin audit,  │
+│     HA setup (Jenkins HA / CloudBees), backup config (JCasC)│
+└──────────────────────────────────────────────────────────────┘
+
+┌─── Scenario: Network Latency Between Microservices ─────────┐
+│                                                              │
+│  Alert: p99 latency spike on service-A calling service-B    │
+│                                                              │
+│  1. Verify: Is it service-B slow or network?               │
+│     - Check service-B's own latency metrics                │
+│     - Run: kubectl exec service-a -- curl -w "time: %{T}"  │
+│  2. Check DNS: nslookup/dig service-b.namespace.svc        │
+│  3. Check NetworkPolicy: any recent changes blocking?       │
+│  4. Check node placement: are they on same/different nodes? │
+│  5. Check: kube-proxy / CNI plugin issues (Calico, Cilium) │
+│  6. Fix: Service mesh (Istio) for retries + circuit breaker│
+│  7. Long-term: distributed tracing to pinpoint bottleneck  │
+└──────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 9. "It Works on My Machine" Resolution
+
+```
+Systematic debugging when dev says "works locally but fails in CI/CD":
+
+  1. Environment differences:
+     ✅ Compare OS, runtime versions (Node 18 vs 20?)
+     ✅ Check env variables (missing DB_HOST in CI?)
+     ✅ Dependencies: lockfile committed? npm ci vs npm install?
+
+  2. Docker differences:
+     ✅ Local Docker Desktop vs CI Docker engine version?
+     ✅ Build cache differences? (--no-cache in CI)
+     ✅ Multi-stage build base image mismatch?
+
+  3. Network/access:
+     ✅ CI can reach external dependencies? (registry, API)
+     ✅ DNS resolution working in CI?
+     ✅ Proxy/firewall blocking downloads?
+
+  4. State/data:
+     ✅ Local DB has test data, CI starts from scratch?
+     ✅ Filesystem permissions different?
+
+  5. Prevention:
+     ✅ Docker for everything (build + test in same image)
+     ✅ Pre-commit hooks → catch issues before push
+     ✅ Dev containers (VS Code .devcontainer)
+```
+
+---
+
+## 10. Pipeline Optimization (60 min → 15 min)
+
+```
+Common bottlenecks and fixes:
+
+  1. Dependency install (npm/pip):
+     ❌ 5 min to install every time
+     ✅ Cache dependencies: Cache@2, actions/cache, Docker layer cache
+
+  2. Test suite too slow:
+     ❌ All tests run sequentially
+     ✅ Parallel test execution (pytest-xdist, Jest --shard)
+     ✅ Skip unchanged modules (path-based triggers)
+     ✅ Separate unit (fast) vs integration (slow) stages
+
+  3. Docker builds:
+     ❌ Rebuild all layers every time
+     ✅ Multi-stage builds, layer caching, BuildKit cache mounts
+     ✅ Cache to registry: --cache-from/--cache-to
+
+  4. Sequential stages:
+     ❌ Lint → Build → Test → Scan (serial)
+     ✅ Run lint, SAST, unit tests in parallel
+
+  5. Large repos:
+     ❌ Full git clone (10+ GB)
+     ✅ Shallow clone: git clone --depth 1
+     ✅ Sparse checkout for monorepos
+
+  Result: 60 min → 15 min pipeline with these techniques
+```
+
+---
+
+## 11. Feature Flags Design Pattern
+
+```
+Feature flags decouple deployment from release:
+
+  Deploy code with flag OFF → Enable for 5% → 50% → 100%
+
+  Types:
+  ┌──────────────────────────────────────────────────────────┐
+  │  Release flag   — ship incomplete feature behind flag    │
+  │  Ops flag       — kill switch for instant disable        │
+  │  Experiment flag — A/B test with user segments           │
+  │  Permission flag — premium features for paid users       │
+  └──────────────────────────────────────────────────────────┘
+
+  CI/CD integration:
+  1. Developer merges to main (trunk-based dev)
+  2. Feature behind flag → always deployable
+  3. Product team enables flag per environment/user segment
+  4. Monitor metrics → expand rollout or rollback
+  5. Remove flag after feature is 100% (tech debt cleanup!)
+
+  Tools: LaunchDarkly, Unleash, Flagsmith, Azure App Configuration
+```
+
+---
+
+## 12. GitOps Implementation Walkthrough
+
+```
+Step-by-step GitOps with ArgoCD:
+
+  1. Git Repo Structure:
+     gitops-repo/
+     ├── apps/
+     │   ├── myapp/
+     │   │   ├── base/
+     │   │   │   ├── deployment.yaml
+     │   │   │   ├── service.yaml
+     │   │   │   └── kustomization.yaml
+     │   │   └── overlays/
+     │   │       ├── dev/
+     │   │       ├── staging/
+     │   │       └── prod/
+     │   └── ...
+     └── argocd/
+         └── applications.yaml
+
+  2. ArgoCD Application:
+     apiVersion: argoproj.io/v1alpha1
+     kind: Application
+     metadata:
+       name: myapp-prod
+       namespace: argocd
+     spec:
+       project: default
+       source:
+         repoURL: https://github.com/org/gitops-repo
+         path: apps/myapp/overlays/prod
+         targetRevision: main
+       destination:
+         server: https://kubernetes.default.svc
+         namespace: production
+       syncPolicy:
+         automated:
+           prune: true        # Delete resources removed from Git
+           selfHeal: true     # Revert manual changes
+
+  3. Workflow:
+     Dev pushes code → CI builds image → CI updates image tag
+     in gitops-repo → ArgoCD detects change → syncs to cluster
+```
+
+---
+
+## 13. Ciena-Specific Interview Preparation
+
+```
+Ciena context to weave into answers:
+
+  Build System:
+  - Yocto/BitBake for embedded Linux firmware
+  - Long build times (hours) → caching critical (sstate-cache)
+  - CI on Jenkins with shared build agents
+
+  Code Review:
+  - Gerrit (not GitHub PRs) → git push origin HEAD:refs/for/main
+  - Multi-repo managed by `repo` tool (Android-style)
+  - Change-Id in commit messages for tracking
+
+  Deployment:
+  - Firmware deployed to networking hardware (not cloud)
+  - Release branches, not trunk-based dev
+  - Long release cycles with certification/compliance
+
+  Culture fit:
+  - Enterprise telecom, not startup velocity
+  - Quality > speed (hardware reliability matters)
+  - Cross-team collaboration (firmware + platform + test)
+
+  Map your experience to Ciena:
+  ┌────────────────────────────┬──────────────────────────────┐
+  │ Your Experience            │ Ciena Equivalent             │
+  ├────────────────────────────┼──────────────────────────────┤
+  │ GitHub PRs                 │ Gerrit code review           │
+  │ Single repo git            │ repo tool (multi-repo)       │
+  │ Docker images              │ Yocto images                 │
+  │ Cloud deploy (K8s)         │ Firmware flash to hardware   │
+  │ Azure Pipelines            │ Jenkins pipelines            │
+  │ npm/pip packages           │ BitBake recipes/layers       │
+  └────────────────────────────┴──────────────────────────────┘
+```
+
+---
+
+## 14. Personal Experience Story Templates
+
+```
+Template 1: CI/CD Improvement
+  "At [company], our pipeline took [X] minutes. I analyzed bottlenecks
+   and implemented [caching/parallelism/Docker optimization]. Result:
+   pipeline time reduced to [Y] minutes, saving [Z] developer-hours/week."
+
+Template 2: Infrastructure as Code
+  "I migrated [N] manually-provisioned servers to Terraform. Created
+   modules for [resource types], implemented state locking with [backend],
+   and set up PR-based plan/apply workflow. Now infrastructure changes
+   go through the same review process as application code."
+
+Template 3: Monitoring & Incident
+  "Production alert fired at [time] for [symptom]. I followed our
+   runbook: checked [metrics/logs/traces], identified [root cause],
+   applied [fix]. Downtime: [duration]. Post-mortem action items:
+   [prevention measures]. Added [new alerts/dashboards] to catch earlier."
+
+Template 4: Docker/K8s Migration
+  "Containerized [N] services from VMs to Docker/K8s. Challenges:
+   [stateful services/networking/secrets management]. Used [Helm/
+   Kustomize] for templating, [ingress controller] for routing,
+   [HPA] for autoscaling. Result: [faster deploys, better utilization]."
+
+Remember: Specific numbers > vague descriptions
+  ❌ "I improved the pipeline"
+  ✅ "I reduced pipeline time from 45 to 12 minutes by implementing
+      Docker layer caching and parallel test execution"
+```

@@ -427,3 +427,220 @@ docker top <ctr>               # Processes
 docker diff <ctr>              # Changed files
 docker history <image>         # Layer history
 ```
+
+---
+
+## 15. Container Lifecycle & Essential Commands
+
+```
+Container States:
+  Created ──► Running ──► Paused ──► Running ──► Stopped ──► Removed
+     │            │           │                      │
+  docker       docker     docker                  docker
+  create       start      pause/unpause           stop/kill
+
+Full Lifecycle:
+  docker create --name myapp nginx     # Create (not started)
+  docker start myapp                   # Start
+  docker pause myapp                   # Freeze (SIGSTOP via cgroups)
+  docker unpause myapp                 # Resume
+  docker stop myapp                    # Graceful (SIGTERM → 10s → SIGKILL)
+  docker kill myapp                    # Immediate (SIGKILL)
+  docker restart myapp                 # stop + start
+  docker rm myapp                      # Remove stopped container
+  docker rm -f myapp                   # Force remove running container
+```
+
+**`docker commit`** — Create image from running container's changes:
+```bash
+docker exec -it myapp bash
+# make changes inside container...
+apt-get update && apt-get install -y curl
+
+docker commit myapp myapp-with-curl:v1
+# Creates new image from container's current state
+# ❌ Not recommended for production — use Dockerfiles instead
+# ✅ Useful for debugging/experimenting
+```
+
+**`docker save` / `docker load`** — Transfer images as tarballs:
+```bash
+docker save myapp:v1 -o myapp-v1.tar     # Export image to file
+docker load -i myapp-v1.tar               # Import image from file
+
+# Use case: air-gapped environments, offline transfer
+```
+
+**`docker export` / `docker import`** — Container filesystem:
+```bash
+docker export mycontainer -o container-fs.tar  # Export container filesystem
+docker import container-fs.tar myimage:v1      # Import as flat image (1 layer)
+
+# Difference from save/load:
+#   save/load  → preserves layers, metadata, tags
+#   export/import → flattens to single layer, loses history
+```
+
+---
+
+## 16. docker inspect — Querying Container/Image Metadata
+
+```bash
+# Full JSON output
+docker inspect mycontainer
+
+# Specific fields with Go template:
+docker inspect --format '{{.State.Status}}' mycontainer          # running
+docker inspect --format '{{.NetworkSettings.IPAddress}}' myapp   # 172.17.0.2
+docker inspect --format '{{.State.ExitCode}}' myapp              # 0
+docker inspect --format '{{.Config.Env}}' myapp                  # [PATH=... DB_HOST=db]
+docker inspect --format '{{.HostConfig.Memory}}' myapp           # 536870912 (bytes)
+docker inspect --format '{{json .Mounts}}' myapp | jq .          # Volume mounts
+docker inspect --format '{{.State.StartedAt}}' myapp             # Timestamp
+
+# Check if container is healthy
+docker inspect --format '{{.State.Health.Status}}' myapp         # healthy
+
+# Get image layers
+docker inspect --format '{{json .RootFS.Layers}}' nginx:latest | jq .
+```
+
+---
+
+## 17. BuildKit — Modern Docker Build Engine
+
+```
+BuildKit = next-gen build backend (default since Docker 23.0)
+
+  DOCKER_BUILDKIT=1 docker build .     # Explicitly enable (older Docker)
+
+  Key Benefits:
+  ┌──────────────────────────────────────────────────┐
+  │ ✅ Parallel stage builds (multi-stage faster)    │
+  │ ✅ Better caching (mount cache for pip/npm)      │
+  │ ✅ Build secrets (--secret, not baked into image)│
+  │ ✅ SSH forwarding for private repo access        │
+  │ ✅ Smaller build context transfer                │
+  │ ✅ Colored progress output                       │
+  └──────────────────────────────────────────────────┘
+```
+
+**Cache mounts** — Persist package manager cache across builds:
+```dockerfile
+# syntax=docker/dockerfile:1
+FROM python:3.12-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install -r requirements.txt
+COPY . .
+```
+
+**Build secrets** — Use secrets without leaking into layers:
+```dockerfile
+RUN --mount=type=secret,id=npmrc,target=/root/.npmrc \
+    npm ci --production
+```
+```bash
+docker build --secret id=npmrc,src=.npmrc .
+```
+
+---
+
+## 18. Advanced Docker Compose
+
+```yaml
+# docker-compose.yml with advanced features
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BUILD_ENV: production
+      cache_from:
+        - myregistry/api:cache
+    image: myregistry/api:${TAG:-latest}
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+      replicas: 3
+      restart_policy:
+        condition: on-failure
+        max_attempts: 3
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    profiles: ["production"]          # Only start with --profile production
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+
+volumes:
+  redis-data:
+    driver: local
+```
+
+**Compose profiles** — Group services:
+```bash
+docker compose --profile production up    # Start services with "production" profile
+docker compose --profile debug up         # Start services with "debug" profile
+```
+
+**Override files** — Environment-specific config:
+```bash
+# docker-compose.yml          → base config
+# docker-compose.override.yml → auto-merged (local dev)
+# docker-compose.prod.yml     → explicit merge for prod
+
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up
+```
+
+---
+
+## 19. Docker CLI Cheat Sheet
+
+```
+┌─── Images ───────────────────────────────────────────────┐
+│ docker build -t name:tag .       Build from Dockerfile   │
+│ docker images                    List images             │
+│ docker rmi image                 Remove image            │
+│ docker image prune -a            Remove unused images    │
+│ docker tag src:v1 dest:v1        Tag/rename image        │
+│ docker push registry/name:tag    Push to registry        │
+│ docker pull registry/name:tag    Pull from registry      │
+└──────────────────────────────────────────────────────────┘
+
+┌─── Containers ───────────────────────────────────────────┐
+│ docker run -d --name n img       Run detached            │
+│ docker run -it img sh            Interactive shell       │
+│ docker ps                        List running            │
+│ docker ps -a                     List all (inc stopped)  │
+│ docker stop/start/restart ctr    Manage state            │
+│ docker rm ctr                    Remove stopped          │
+│ docker container prune           Remove all stopped      │
+└──────────────────────────────────────────────────────────┘
+
+┌─── System ───────────────────────────────────────────────┐
+│ docker system df                 Disk usage              │
+│ docker system prune -a           Remove everything unused│
+│ docker info                      System-wide info        │
+│ docker version                   Client/server version   │
+└──────────────────────────────────────────────────────────┘
+```

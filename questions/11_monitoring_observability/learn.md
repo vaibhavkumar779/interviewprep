@@ -381,3 +381,332 @@ Error Budget:
     0.1% error budget = 43.2 min of downtime allowed
     Used up? → freeze deployments until next month
 ```
+
+---
+
+## 11. Prometheus Exporters
+
+```
+Exporter = adapter that exposes metrics in Prometheus format (/metrics)
+
+┌─── Common Exporters ────────────────────────────────────────────┐
+│                                                                  │
+│  node_exporter        — Linux host metrics (CPU, mem, disk, net)│
+│  kube-state-metrics   — K8s object state (pods, deploys, nodes) │
+│  cAdvisor             — Container resource usage (built into    │
+│                         kubelet)                                 │
+│  blackbox_exporter    — Probe endpoints (HTTP, DNS, TCP, ICMP)  │
+│  postgres_exporter    — PostgreSQL metrics                      │
+│  redis_exporter       — Redis metrics                           │
+│  nginx_exporter       — NGINX stub_status metrics               │
+│  process-exporter     — Per-process metrics                     │
+│  mysqld_exporter      — MySQL metrics                           │
+│                                                                  │
+│  In K8s: Deploy as DaemonSet (node_exporter)                    │
+│          or Deployment (blackbox, postgres)                      │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 12. Prometheus Service Discovery in Kubernetes
+
+```yaml
+# prometheus.yml — kubernetes_sd_configs
+scrape_configs:
+  # Discover pods with prometheus annotations
+  - job_name: 'kubernetes-pods'
+    kubernetes_sd_configs:
+      - role: pod
+    relabel_configs:
+      # Only scrape pods with annotation: prometheus.io/scrape: "true"
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        action: keep
+        regex: true
+      # Use annotation for custom port
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_port]
+        action: replace
+        target_label: __address__
+        regex: (.+)
+      # Use annotation for custom path
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+        action: replace
+        target_label: __metrics_path__
+        regex: (.+)
+
+  # Auto-discover services
+  - job_name: 'kubernetes-services'
+    kubernetes_sd_configs:
+      - role: service
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scrape]
+        action: keep
+        regex: true
+```
+
+Pod annotation pattern to enable scraping:
+```yaml
+metadata:
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+    prometheus.io/path: "/metrics"
+```
+
+---
+
+## 13. Recording Rules & Pushgateway
+
+**Recording Rules** — pre-compute expensive queries:
+```yaml
+# rules/recording.yml
+groups:
+  - name: api_rules
+    interval: 30s
+    rules:
+      # Pre-compute request rate (expensive PromQL → cheap lookup)
+      - record: job:http_requests_total:rate5m
+        expr: rate(http_requests_total[5m])
+
+      # Pre-compute error percentage
+      - record: job:http_error_rate:ratio
+        expr: |
+          rate(http_requests_total{status=~"5.."}[5m])
+          /
+          rate(http_requests_total[5m])
+
+  # Why: Dashboard loading faster, alert rules referencing
+  # pre-computed values instead of raw metrics
+```
+
+**Pushgateway** — for short-lived jobs:
+```
+Normal:  long-running service → Prometheus scrapes /metrics (pull)
+Problem: batch job runs 30 sec → exits before Prometheus scrapes
+Solution: batch job → pushes metrics to Pushgateway → Prometheus scrapes Pushgateway
+
+  Batch Job ──push──► Pushgateway ◄──scrape── Prometheus
+  (exits)              (persists)
+
+  Use for: cron jobs, CI jobs, migration scripts, one-off tasks
+  ❌ Do NOT use for long-running services (use pull model)
+```
+
+---
+
+## 14. Application Instrumentation
+
+```python
+# Python — prometheus_client library
+from prometheus_client import Counter, Histogram, start_http_server
+
+# Define metrics
+REQUEST_COUNT = Counter(
+    'http_requests_total',
+    'Total HTTP requests',
+    ['method', 'endpoint', 'status']
+)
+
+REQUEST_LATENCY = Histogram(
+    'http_request_duration_seconds',
+    'HTTP request latency',
+    ['method', 'endpoint'],
+    buckets=[0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0]
+)
+
+# Instrument endpoint
+@app.route('/api/users')
+def get_users():
+    with REQUEST_LATENCY.labels('GET', '/api/users').time():
+        users = db.query_users()
+        REQUEST_COUNT.labels('GET', '/api/users', '200').inc()
+        return users
+
+# Expose /metrics endpoint
+start_http_server(8000)  # Prometheus scrapes this
+```
+
+Four types of Prometheus metrics:
+```
+Counter    — only goes up (total requests, errors)        .inc()
+Gauge      — goes up and down (temperature, queue size)   .set(), .inc(), .dec()
+Histogram  — distribution in buckets (latency)            .observe()
+Summary    — quantiles on client side (p50, p99)          .observe()
+```
+
+---
+
+## 15. Long-Term Storage Solutions
+
+```
+Problem: Prometheus stores ~15 days locally, needs lots of disk
+
+┌─── Long-Term Storage Options ──────────────────────────────────┐
+│                                                                 │
+│  Thanos     — sidecar per Prometheus, uploads to object store  │
+│               Global query across clusters                      │
+│               Downsampling (5m, 1h) for old data               │
+│               Most popular open-source option                   │
+│                                                                 │
+│  Cortex     — horizontally scalable, multi-tenant              │
+│  (now Mimir)  CNCF project, used by Grafana Cloud              │
+│                                                                 │
+│  Mimir      — Grafana fork of Cortex, simpler ops              │
+│               Built for massive scale                           │
+│                                                                 │
+│  VictoriaMetrics — fast, resource-efficient alternative        │
+│                    Drop-in Prometheus compatible                │
+│                    Good for smaller teams                        │
+└─────────────────────────────────────────────────────────────────┘
+
+Architecture (Thanos):
+  ┌────────┐    ┌─────────┐    ┌──────────┐
+  │Prometh.│───►│ Thanos  │───►│ Object   │
+  │        │    │ Sidecar │    │ Storage  │  (S3, GCS, Azure Blob)
+  └────────┘    └─────────┘    └──────┬───┘
+                                      │
+                               ┌──────▼───┐
+                               │  Thanos  │  ← query all clusters
+                               │  Query   │
+                               └──────────┘
+```
+
+---
+
+## 16. Grafana Loki vs ELK
+
+```
+┌─── ELK Stack ──────────────────────────────────────────────────┐
+│  Elasticsearch → Logstash → Kibana                             │
+│                                                                 │
+│  ✅ Full-text indexing (search any word in logs)               │
+│  ✅ Powerful query language (Lucene, KQL)                      │
+│  ✅ Rich visualizations in Kibana                              │
+│  ❌ Expensive (indexes every field → lots of storage)          │
+│  ❌ Heavy to operate (JVM, cluster management)                 │
+│  ❌ Needs tuning for scale                                     │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─── Grafana Loki ───────────────────────────────────────────────┐
+│  "Like Prometheus, but for logs"                               │
+│                                                                 │
+│  ✅ Only indexes labels (not log content → 10x cheaper)        │
+│  ✅ Same label model as Prometheus → easy correlation          │
+│  ✅ Lightweight, easy to operate                               │
+│  ✅ Native Grafana integration                                 │
+│  ❌ No full-text search (grep-like, label-based filtering)     │
+│  ❌ Less mature than ELK                                       │
+└─────────────────────────────────────────────────────────────────┘
+
+LogQL example:  {app="api", env="prod"} |= "error" | json | status >= 500
+PromQL example: rate(http_requests_total{app="api"}[5m])
+                   ↑ same labels → correlate logs + metrics!
+```
+
+---
+
+## 17. Alertmanager Configuration
+
+```yaml
+# alertmanager.yml
+global:
+  smtp_smarthost: 'smtp.example.com:587'
+  smtp_from: 'alerts@example.com'
+
+route:
+  receiver: 'default-slack'
+  group_by: ['alertname', 'namespace']      # Group related alerts
+  group_wait: 30s                            # Wait before first notification
+  group_interval: 5m                         # Wait between group updates
+  repeat_interval: 4h                        # Re-notify every 4h if unresolved
+  routes:
+    - match:
+        severity: critical
+      receiver: 'pagerduty-critical'
+    - match:
+        severity: warning
+      receiver: 'slack-warnings'
+
+receivers:
+  - name: 'pagerduty-critical'
+    pagerduty_configs:
+      - routing_key: '<key>'
+  - name: 'slack-warnings'
+    slack_configs:
+      - channel: '#alerts-warning'
+        text: '{{ .CommonAnnotations.summary }}'
+  - name: 'default-slack'
+    slack_configs:
+      - channel: '#alerts'
+
+inhibit_rules:
+  # If critical fires, suppress warning for same alert
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'namespace']
+```
+
+---
+
+## 18. Grafana Dashboard Provisioning (Dashboards as Code)
+
+```yaml
+# grafana/provisioning/dashboards/dashboards.yml
+apiVersion: 1
+providers:
+  - name: 'default'
+    folder: 'DevOps'
+    type: file
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: true
+
+# Store dashboard JSON in Git → mount into Grafana container
+# Change dashboard → commit → CI deploys → Grafana picks up
+```
+
+---
+
+## 19. Azure Monitor & Application Insights
+
+```
+┌─── Azure Monitor Stack ───────────────────────────────────────┐
+│                                                                │
+│  Azure Monitor         — platform metrics for Azure resources │
+│  Log Analytics         — centralized log storage (KQL queries)│
+│  Application Insights  — APM for applications                 │
+│  Azure Alerts          — metric/log-based alert rules         │
+│  Workbooks             — interactive dashboards               │
+│                                                                │
+│  KQL example:                                                  │
+│  requests                                                      │
+│  | where timestamp > ago(1h)                                   │
+│  | where resultCode >= 500                                     │
+│  | summarize count() by bin(timestamp, 5m), cloud_RoleName    │
+│  | render timechart                                            │
+│                                                                │
+│  App Insights auto-collects: requests, dependencies,          │
+│  exceptions, traces, page views, performance counters         │
+└────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 20. On-Call Best Practices
+
+```
+┌─── On-Call Checklist ──────────────────────────────────────────┐
+│                                                                 │
+│  1. Runbooks for every alert (what to check, how to fix)       │
+│  2. Escalation path: primary → secondary → manager             │
+│  3. Alert fatigue mitigation:                                   │
+│     - Only alert on actionable conditions                       │
+│     - Use severity levels (critical=page, warning=slack)        │
+│     - Group related alerts (Alertmanager group_by)              │
+│  4. Post-incident review within 48 hours                        │
+│  5. Fair rotation schedule (follow the sun for global teams)   │
+│  6. Compensatory time off for after-hours pages                │
+└─────────────────────────────────────────────────────────────────┘
+```

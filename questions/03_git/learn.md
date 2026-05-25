@@ -454,3 +454,209 @@ git tag -l "v1.*"              # List matching
 git tag -d v1.0                # Delete local
 git push origin :refs/tags/v1.0  # Delete remote
 ```
+
+---
+
+## 14. Git Reflog — Safety Net
+
+```bash
+# Reflog = log of every HEAD position change (local only)
+git reflog
+# Output:
+# a1b2c3d HEAD@{0}: commit: add feature
+# e4f5g6h HEAD@{1}: checkout: moving from main to feature
+# i7j8k9l HEAD@{2}: reset: moving to HEAD~1
+
+# Recover "lost" commits:
+git reset --hard HEAD~3          # Accidentally reset too far
+git reflog                        # Find the commit hash
+git reset --hard a1b2c3d          # Restore to that point
+
+# Reflog expires after 90 days (default)
+# ✅ Lifesaver for: accidental reset, wrong rebase, deleted branch
+```
+
+---
+
+## 15. Git Bisect — Binary Search for Bugs
+
+```bash
+# Find which commit introduced a bug using binary search
+git bisect start
+git bisect bad                    # Current commit has the bug
+git bisect good v2.0              # v2.0 was working fine
+
+# Git checks out the middle commit
+# Test it, then:
+git bisect good                   # This commit is fine
+# or
+git bisect bad                    # This commit has the bug
+
+# Git narrows down automatically → finds exact commit
+git bisect reset                  # Return to original HEAD
+
+# Automated bisect with a test script:
+git bisect start HEAD v2.0
+git bisect run pytest tests/test_login.py
+# Automatically tests each commit → finds the culprit
+```
+
+---
+
+## 16. Git Submodules
+
+```bash
+# Include another repo inside your repo
+git submodule add https://github.com/org/shared-lib.git libs/shared
+
+# Clone repo with submodules
+git clone --recurse-submodules https://github.com/org/myapp.git
+
+# Update submodule to latest
+cd libs/shared
+git pull origin main
+cd ../..
+git add libs/shared
+git commit -m "Update shared-lib submodule"
+
+# .gitmodules file:
+[submodule "libs/shared"]
+    path = libs/shared
+    url = https://github.com/org/shared-lib.git
+
+# ⚠️ Gotcha: submodule points to a specific COMMIT, not branch
+# ⚠️ Team must run: git submodule update --init --recursive
+```
+
+---
+
+## 17. Git Hooks
+
+```bash
+# .git/hooks/ — scripts triggered by Git events
+# Client-side:
+pre-commit       # Run before commit (lint, format, secret scan)
+commit-msg       # Validate commit message format
+pre-push         # Run before push (tests, security checks)
+
+# Server-side:
+pre-receive      # Validate incoming push (enforce policies)
+post-receive     # Trigger CI/CD after push
+
+# Example: pre-commit hook for secret detection
+#!/bin/sh
+# .git/hooks/pre-commit
+if git diff --cached | grep -E "(API_KEY|PASSWORD|SECRET)" ; then
+    echo "ERROR: Potential secret detected!"
+    exit 1
+fi
+
+# Better approach: use frameworks
+# pre-commit framework (Python):
+pip install pre-commit
+# .pre-commit-config.yaml:
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+      - id: check-yaml
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.0
+    hooks:
+      - id: gitleaks
+```
+
+---
+
+## 18. Git LFS (Large File Storage)
+
+```bash
+# Track large files (binaries, images, firmware) without bloating repo
+git lfs install
+git lfs track "*.bin"
+git lfs track "*.iso"
+git lfs track "firmware/**"
+
+# .gitattributes (auto-created):
+*.bin filter=lfs diff=lfs merge=lfs -text
+*.iso filter=lfs diff=lfs merge=lfs -text
+
+# LFS stores pointer in Git, actual file on LFS server
+git add firmware.bin
+git commit -m "Add firmware binary"
+git push    # Binary uploaded to LFS server, pointer in Git
+
+# Without LFS: 500MB binary → repo grows 500MB per version
+# With LFS: repo stays small, LFS server stores blobs
+```
+
+---
+
+## 19. Google Repo Tool (Ciena-critical)
+
+```bash
+# repo = tool for managing multiple Git repositories
+# Used by Android, Ciena, and other large multi-repo projects
+
+# Initialize repo workspace:
+repo init -u https://gerrit.example.com/manifest -b main
+# Downloads manifest.xml that lists all repos
+
+# Sync all repos:
+repo sync -j4                     # Parallel clone/fetch of all repos
+
+# manifest.xml example:
+<?xml version="1.0"?>
+<manifest>
+  <remote name="origin" fetch="https://gerrit.example.com/" />
+  <default revision="main" remote="origin" sync-j="4" />
+  <project name="platform/base" path="base" />
+  <project name="platform/networking" path="networking" />
+  <project name="platform/tests" path="tests" />
+</manifest>
+
+# Workflow:
+repo start feature-x --all       # Start branch across repos
+# ... make changes in multiple repos ...
+repo upload                       # Push all changes to Gerrit for review
+
+# repo + Gerrit together:
+# repo manages multi-repo workspace
+# Gerrit handles code review per-repo
+# Jenkins triggers on Gerrit events across repos
+```
+
+---
+
+## 20. Gerrit Code Review Workflow
+
+```bash
+# Gerrit uses a different push model than GitHub PRs
+
+# Push for review (not directly to branch):
+git push origin HEAD:refs/for/main
+#                     ↑ "refs/for/" = submit for review
+
+# Commit message MUST include Change-Id:
+# Change-Id: I1234567890abcdef...
+# (Gerrit tracks review by Change-Id, not commit hash)
+
+# Install commit-msg hook to auto-generate Change-Id:
+scp -p -P 29418 user@gerrit.example.com:hooks/commit-msg .git/hooks/
+
+# Amend and re-push (updates same review, new patchset):
+git commit --amend       # Change-Id stays the same
+git push origin HEAD:refs/for/main
+
+# Review workflow:
+# 1. Developer pushes → Gerrit creates change
+# 2. Jenkins runs Verified +1/-1 (automated tests)
+# 3. Reviewer gives Code-Review +2 (human approval)
+# 4. Submit (merge) when both are +
+
+# Gerrit labels:
+#   Verified:    +1 (tests pass)  -1 (tests fail)
+#   Code-Review: +2 (approved)    +1 (looks good)
+#                -1 (needs work)  -2 (blocked)
+```

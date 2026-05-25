@@ -402,3 +402,219 @@ Plugin conflicts?
   → Pin critical plugin versions
   → Check Jenkins compatibility matrix
 ```
+
+---
+
+## 10. Essential Jenkins Plugins
+
+| Plugin | Purpose |
+|--------|---------|
+| **Pipeline** | Core declarative/scripted pipeline support |
+| **Git** | Git SCM integration |
+| **Docker Pipeline** | Build/run in Docker containers |
+| **Kubernetes** | Dynamic K8s pod agents |
+| **Credentials Binding** | Inject secrets into builds |
+| **Blue Ocean** | Modern UI for pipeline visualization |
+| **Job DSL** | Define jobs as Groovy code |
+| **Configuration as Code (JCasC)** | YAML-based Jenkins config |
+| **Gerrit Trigger** | Trigger builds on Gerrit events |
+| **SonarQube Scanner** | Code quality analysis |
+| **Warnings Next Gen** | Static analysis result aggregation |
+| **Pipeline Utility Steps** | readJSON, readYAML, zip/unzip |
+| **Email Extension** | Rich email notifications |
+| **Matrix Authorization** | Fine-grained RBAC |
+| **Timestamper** | Add timestamps to console output |
+
+---
+
+## 11. Docker & Kubernetes Agents
+
+```groovy
+// Docker agent — clean build environment per job
+pipeline {
+    agent {
+        docker {
+            image 'python:3.12-slim'
+            args '-v /var/run/docker.sock:/var/run/docker.sock'
+        }
+    }
+    stages {
+        stage('Build') {
+            steps {
+                sh 'pip install -r requirements.txt'
+                sh 'pytest'
+            }
+        }
+    }
+}
+```
+
+```groovy
+// Kubernetes agent — dynamic pods on K8s cluster
+pipeline {
+    agent {
+        kubernetes {
+            yaml '''
+apiVersion: v1
+kind: Pod
+spec:
+  containers:
+  - name: maven
+    image: maven:3.9-eclipse-temurin-17
+    command: ['sleep', 'infinity']
+  - name: docker
+    image: docker:24-dind
+    securityContext:
+      privileged: true
+'''
+        }
+    }
+    stages {
+        stage('Build') {
+            steps {
+                container('maven') {
+                    sh 'mvn clean package'
+                }
+            }
+        }
+        stage('Docker Build') {
+            steps {
+                container('docker') {
+                    sh 'docker build -t myapp:${BUILD_NUMBER} .'
+                }
+            }
+        }
+    }
+}
+```
+
+---
+
+## 12. Jenkins Configuration as Code (JCasC)
+
+```yaml
+# jenkins.yaml — entire Jenkins config in one file
+jenkins:
+  systemMessage: "Jenkins configured via JCasC"
+  numExecutors: 0             # No builds on controller
+  securityRealm:
+    ldap:
+      configurations:
+        - server: ldap.example.com
+  authorizationStrategy:
+    roleBased:
+      roles:
+        global:
+          - name: "admin"
+            permissions: ["Overall/Administer"]
+          - name: "developer"
+            permissions: ["Job/Build", "Job/Read"]
+
+  clouds:
+    - kubernetes:
+        name: "k8s"
+        serverUrl: "https://kubernetes.default"
+        namespace: "jenkins"
+        jenkinsUrl: "http://jenkins.jenkins.svc:8080"
+        podTemplates:
+          - name: "default"
+            containers:
+              - name: "jnlp"
+                image: "jenkins/inbound-agent:latest"
+
+credentials:
+  system:
+    domainCredentials:
+      - credentials:
+          - usernamePassword:
+              id: "git-creds"
+              username: "jenkins"
+              password: "${GIT_PASSWORD}"
+
+# Deploy: mount jenkins.yaml → set CASC_JENKINS_CONFIG env var
+# All config in Git → PR review → merge → Jenkins auto-reloads
+```
+
+---
+
+## 13. Gerrit Trigger Plugin (Ciena-relevant)
+
+```groovy
+// Triggered by Gerrit patchset-created event
+pipeline {
+    agent any
+    triggers {
+        gerrit(
+            triggerOnEvents: [patchsetCreated()],
+            gerritProjects: [[
+                compareType: 'PLAIN',
+                pattern: 'myproject',
+                branches: [[ compareType: 'ANT', pattern: '**' ]]
+            ]]
+        )
+    }
+    stages {
+        stage('Verify') {
+            steps {
+                // Gerrit env vars available:
+                // GERRIT_CHANGE_NUMBER, GERRIT_PATCHSET_REVISION
+                sh 'make test'
+            }
+            post {
+                success {
+                    // Send Verified +1 back to Gerrit
+                    gerritReview labels: [Verified: 1]
+                }
+                failure {
+                    gerritReview labels: [Verified: -1]
+                }
+            }
+        }
+    }
+}
+
+// Gerrit workflow: push → Gerrit → triggers Jenkins → 
+// Jenkins posts Verified ±1 → reviewer sees result → Code-Review +2 → submit
+```
+
+---
+
+## 14. Matrix Builds
+
+```groovy
+// Test across multiple OS/language combinations
+pipeline {
+    agent none
+    stages {
+        stage('Test Matrix') {
+            matrix {
+                axes {
+                    axis {
+                        name 'OS'
+                        values 'linux', 'windows'
+                    }
+                    axis {
+                        name 'PYTHON'
+                        values '3.10', '3.11', '3.12'
+                    }
+                }
+                excludes {
+                    exclude {
+                        axis { name 'OS'; values 'windows' }
+                        axis { name 'PYTHON'; values '3.10' }
+                    }
+                }
+                stages {
+                    stage('Test') {
+                        agent { label "${OS}" }
+                        steps {
+                            sh "python${PYTHON} -m pytest"
+                        }
+                    }
+                }
+            }
+            // Runs 5 combinations in parallel (6 minus 1 excluded)
+        }
+    }
+}
+```

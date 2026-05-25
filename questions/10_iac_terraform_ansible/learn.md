@@ -632,3 +632,257 @@ resource "local_file" "ansible_inventory" {
   filename = "${path.module}/inventory.ini"
 }
 ```
+
+---
+
+## 14. Terraform Lifecycle Meta-Arguments
+
+```hcl
+resource "azurerm_linux_virtual_machine" "web" {
+  name = "web-server"
+  # ...
+
+  lifecycle {
+    # Create new resource BEFORE destroying old one (zero downtime)
+    create_before_destroy = true
+
+    # Prevent accidental deletion (must remove this to destroy)
+    prevent_destroy = true
+
+    # Ignore changes to tags (managed externally, e.g. Azure Policy)
+    ignore_changes = [tags, custom_data]
+
+    # Replace when any of these change (force recreation)
+    replace_triggered_by = [null_resource.trigger.id]
+  }
+}
+```
+
+---
+
+## 15. Terraform Import & Moved Blocks
+
+```hcl
+# import block (Terraform 1.5+) — bring existing resources under management
+import {
+  to = azurerm_resource_group.main
+  id = "/subscriptions/xxx/resourceGroups/my-rg"
+}
+# Run: terraform plan -generate-config-out=generated.tf
+# Generates HCL config for the imported resource
+
+# moved block (Terraform 1.1+) — rename/refactor without destroy+create
+moved {
+  from = azurerm_linux_virtual_machine.web
+  to   = module.compute.azurerm_linux_virtual_machine.web
+}
+# Terraform moves state entry — no infrastructure change!
+```
+
+---
+
+## 16. Terraform Provisioners (and Why to Avoid Them)
+
+```hcl
+resource "azurerm_linux_virtual_machine" "web" {
+  # ...
+
+  # Runs ONCE after resource creation
+  provisioner "remote-exec" {
+    inline = [
+      "sudo apt-get update",
+      "sudo apt-get install -y nginx"
+    ]
+    connection {
+      type = "ssh"
+      user = "adminuser"
+      host = self.public_ip_address
+    }
+  }
+
+  # local-exec runs on the machine running Terraform
+  provisioner "local-exec" {
+    command = "ansible-playbook -i '${self.public_ip_address},' setup.yml"
+  }
+}
+
+# ❌ Why to avoid provisioners:
+#   - Not in state → Terraform can't track or update
+#   - Not idempotent → may fail on re-apply
+#   - Breaks declarative model
+# ✅ Better alternatives:
+#   - Use cloud-init/user_data for VM bootstrap
+#   - Use Ansible for configuration management
+#   - Use Packer to bake images with everything pre-installed
+```
+
+---
+
+## 17. Ansible Roles
+
+```bash
+# Role = reusable, self-contained unit of automation
+ansible-galaxy init myrole
+# Creates structure:
+# myrole/
+# ├── defaults/main.yml     # Default variables (lowest priority)
+# ├── files/                 # Static files to copy
+# ├── handlers/main.yml     # Triggered actions (e.g., restart nginx)
+# ├── meta/main.yml          # Dependencies, metadata
+# ├── tasks/main.yml         # Main task list
+# ├── templates/             # Jinja2 templates
+# ├── tests/                 # Test playbook
+# └── vars/main.yml          # Variables (higher priority than defaults)
+```
+
+```yaml
+# roles/nginx/tasks/main.yml
+- name: Install nginx
+  apt:
+    name: nginx
+    state: present
+  notify: restart nginx
+
+- name: Deploy config
+  template:
+    src: nginx.conf.j2
+    dest: /etc/nginx/nginx.conf
+  notify: restart nginx
+
+# roles/nginx/handlers/main.yml
+- name: restart nginx
+  service:
+    name: nginx
+    state: restarted
+
+# roles/nginx/defaults/main.yml
+nginx_port: 80
+nginx_worker_connections: 1024
+```
+
+```yaml
+# Using roles in a playbook
+- hosts: webservers
+  become: yes
+  roles:
+    - common
+    - nginx
+    - { role: app, tags: ['app'], app_version: '2.1.0' }
+```
+
+---
+
+## 18. Ansible Vault
+
+```bash
+# Encrypt sensitive data
+ansible-vault create secrets.yml
+# Editor opens → add secrets:
+# db_password: SuperSecret123
+# api_key: abcdef123456
+
+# Encrypt existing file
+ansible-vault encrypt vars/production.yml
+
+# Edit encrypted file
+ansible-vault edit secrets.yml
+
+# View encrypted file
+ansible-vault view secrets.yml
+
+# Decrypt file
+ansible-vault decrypt secrets.yml
+
+# Encrypt single string (inline in YAML)
+ansible-vault encrypt_string 'SuperSecret123' --name 'db_password'
+# Output:
+# db_password: !vault |
+#   $ANSIBLE_VAULT;1.1;AES256
+#   6562663366...
+
+# Use in playbook
+ansible-playbook deploy.yml --ask-vault-pass
+ansible-playbook deploy.yml --vault-password-file=~/.vault_pass
+```
+
+---
+
+## 19. Ansible Galaxy & Dynamic Inventory
+
+```bash
+# Galaxy — community role repository
+ansible-galaxy install geerlingguy.docker
+ansible-galaxy install -r requirements.yml
+
+# requirements.yml
+roles:
+  - name: geerlingguy.docker
+    version: 7.1.0
+  - name: geerlingguy.certbot
+
+collections:
+  - name: community.docker
+    version: 3.4.0
+```
+
+```yaml
+# Dynamic Inventory — auto-discover hosts from cloud
+# azure_rm.yml
+plugin: azure.azcollection.azure_rm
+auth_source: auto
+include_vm_resource_groups:
+  - production-rg
+keyed_groups:
+  - key: tags.role     # Group by Azure tag "role"
+    prefix: tag
+  - key: location      # Group by Azure region
+    prefix: region
+
+# Usage:
+ansible-playbook -i azure_rm.yml deploy.yml
+# Automatically discovers VMs, no static inventory file needed
+```
+
+---
+
+## 20. Molecule Testing for Ansible Roles
+
+```bash
+# Molecule = test framework for Ansible roles
+pip install molecule molecule-docker
+
+# Initialize tests for a role
+cd roles/nginx
+molecule init scenario -d docker
+
+# molecule/default/molecule.yml
+driver:
+  name: docker
+platforms:
+  - name: instance
+    image: ubuntu:22.04
+    pre_build_image: true
+provisioner:
+  name: ansible
+verifier:
+  name: ansible
+
+# molecule/default/verify.yml
+- name: Verify nginx
+  hosts: all
+  tasks:
+    - name: Check nginx is installed
+      command: nginx -v
+      register: result
+      failed_when: result.rc != 0
+
+    - name: Check nginx is running
+      service:
+        name: nginx
+        state: started
+      check_mode: true
+
+# Run tests:
+molecule test
+# Creates container → runs role → runs verify → destroys container
+```
