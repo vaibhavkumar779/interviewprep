@@ -573,7 +573,7 @@ pipeline {
     }
 }
 
-// Gerrit workflow: push → Gerrit → triggers Jenkins → 
+// Gerrit workflow: push → Gerrit → triggers Jenkins →
 // Jenkins posts Verified ±1 → reviewer sees result → Code-Review +2 → submit
 ```
 

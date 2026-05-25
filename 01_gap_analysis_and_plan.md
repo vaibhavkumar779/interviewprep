@@ -1,9 +1,8 @@
-# Ciena DevOps Engineer Interview - Prep Plan
-## Interview: [DATE], [TIME] | Interviewer: [INTERVIEWER]
+# DevOps Engineer Interview — Prep Plan
 
 ---
 
-## YOUR SKILL vs JD ALIGNMENT
+## SKILL vs JD ALIGNMENT
 
 | JD Requirement | Your Level | Gap | Priority |
 |---|---|---|---|
@@ -21,35 +20,35 @@
 
 ---
 
-## 36-HOUR STUDY PLAN
+## STUDY PLAN
 
-### Phase 1: TODAY (Sat evening, ~6 hours)
-1. **Linux commands deep dive** (2 hrs) - grep, awk, sed, find, process mgmt, networking
-2. **Git advanced ops** (1.5 hrs) - cherry-pick, bisect, stash, hooks, branching strategies
+### Phase 1: ~6 hours
+1. **Linux commands deep dive** (2 hrs) — grep, awk, sed, find, process mgmt, networking
+2. **Git advanced ops** (1.5 hrs) — cherry-pick, bisect, stash, hooks, branching strategies
 3. **Jenkins scripted pipelines + shared libraries** (1.5 hrs)
-4. **Go/Yocto awareness** (1 hr) - what they are, key concepts, vocabulary
+4. **Go/Yocto awareness** (1 hr) — what they are, key concepts, vocabulary
 
-### Phase 2: TOMORROW MORNING (Sun, ~6 hours)
+### Phase 2: ~6 hours
 5. **Python subprocess, os, sys** (1 hr)
 6. **Practice writing K8s manifests from scratch** (1 hr)
 7. **Gerrit/Google Repo concepts** (30 min)
-8. **Practice coding scenarios** (2.5 hrs) - Jenkins pipeline, Dockerfile, K8s manifests, shell scripts
+8. **Practice coding scenarios** (2.5 hrs) — Jenkins pipeline, Dockerfile, K8s manifests, shell scripts
 9. **Review written Q&A** (1 hr)
 
-### Phase 3: MONDAY MORNING before interview (~2 hours)
+### Phase 3: Final Review (~2 hours)
 10. **Quick review of all notes** (1 hr)
-11. **Ciena company research** (30 min) - Optical Networks, products, recent news
-12. **Mock dry run** - explain your work at current role in STAR format (30 min)
+11. **Company research** (30 min) — products, tech stack, recent news
+12. **Mock dry run** — explain your work at current role in STAR format (30 min)
 
 ---
 
-## ABOUT CIENA (Research this!)
+## ABOUT CIENA (Public Information)
 - Ciena is a **networking systems, services, and software company**
 - Specializes in **Optical Networking** (fiber optic networking equipment)
-- Products: WaveLogic (coherent optics), MCP (Manage, Control, Plan platform)
+- Products: WaveLogic (coherent optics), MCP (Manage, Control, Plan platform), Blue Planet
 - The ON (Optical Networks) team builds software for optical networking devices
-- **Embedded software** context (interviewer is from embedded SW) - firmware, device OS, build systems
-- This is why **Go/Yocto** matters - Yocto is used to build embedded Linux for network devices
+- **Embedded software** context — firmware, device OS, build systems
+- This is why **Go/Yocto** matters — Yocto is used to build embedded Linux for network devices
 
 ---
 
@@ -59,7 +58,7 @@
 - Azure DevOps + CI/CD pipeline experience (directly transferable to Jenkins)
 - Docker + K8s in production
 - Infrastructure automation (Terraform, Ansible)
-- Monitoring (Prometheus, Grafana) - shows operational maturity
+- Monitoring (Prometheus, Grafana) — shows operational maturity
 - DevSecOps (SonarQube, Snyk)
 - Working in large distributed teams
 

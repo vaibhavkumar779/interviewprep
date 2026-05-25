@@ -142,7 +142,7 @@ Optical Networking — How Data Travels:
 
 ---
 
-# PART 2: THE POSITION — DevOps Engineer ([REF])
+# PART 2: THE POSITION — DevOps Engineer
 
 ---
 
@@ -152,7 +152,6 @@ Optical Networking — How Data Travels:
 
 ```
 Position: DevOps Engineer — Optical Networks (ON) Team
-Ref:      [REF]
 Team:     Fast-growing DevOps team within ON division
 Focus:    CI/CD, automation, quality, stability, speed of delivery
 
@@ -596,13 +595,7 @@ DevOps Metrics & Data-Driven Improvement:
 **28. What to expect in the interview?**
 
 ```
-Interview Details:
-  Date:        [DATE] (Tuesday)
-  Time:        [TIME]
-  Format:      Virtual (likely Zoom/Teams)
-  Interviewer: [INTERVIEWER]
-
-  Likely Format:
+Typical Interview Format:
   ┌──────────────────────────────────────────────────────┐
   │  1. Introduction & "Tell me about yourself" (5 min)  │
   │  2. Technical questions on core skills (30-40 min)   │
