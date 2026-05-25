@@ -5,15 +5,27 @@
 ## OSI & TCP/IP Model
 
 **1. 7 layers of OSI model?**
-| Layer | Name | Function | Protocols/Examples |
-|---|---|---|---|
-| 7 | Application | User interface, apps | HTTP, DNS, SMTP, SSH |
-| 6 | Presentation | Encryption, encoding, compression | SSL/TLS, JPEG, ASCII |
-| 5 | Session | Session management | NetBIOS, RPC |
-| 4 | Transport | End-to-end delivery, reliability | TCP, UDP |
-| 3 | Network | Routing, logical addressing | IP, ICMP, OSPF |
-| 2 | Data Link | Physical addressing, frames | Ethernet, MAC, ARP |
-| 1 | Physical | Bits on wire/wireless | Cables, Wi-Fi, fiber |
+
+```
+OSI Model (data flow ↓):
+┌───────┬────────────────┬───────────────────────┬──────────────────────┐
+│ Layer │ Name            │ Function               │ Protocols/Examples   │
+├───────┼────────────────┼───────────────────────┼──────────────────────┤
+│   7   │ Application     │ User-facing services    │ HTTP, DNS, SMTP, SSH │
+│   6   │ Presentation    │ Encrypt, encode, zip   │ SSL/TLS, JPEG, ASCII │
+│   5   │ Session         │ Session management     │ NetBIOS, RPC         │
+│   4   │ Transport       │ End-to-end delivery    │ TCP, UDP             │
+│   3   │ Network         │ Routing, IP addressing │ IP, ICMP, OSPF       │
+│   2   │ Data Link       │ MAC addressing, frames │ Ethernet, ARP        │
+│   1   │ Physical        │ Bits on wire/air       │ Cables, Wi-Fi, fiber │
+└───────┴────────────────┴───────────────────────┴──────────────────────┘
+
+Mnemonic: "All People Seem To Need Data Processing" (L7→L1)
+
+How data flows:
+  Sender:  App data → +segment → +packet → +frame → bits
+  Receiver: bits → frame → packet → segment → App data
+```
 
 **2. TCP/IP model (4 layers)?**
 1. **Application** (OSI 5-7): HTTP, DNS, SSH
@@ -81,6 +93,33 @@ Virtual LAN — logically segments a physical network. Devices in same VLAN comm
 
 **14. DNS? Resolution step by step?**
 Domain Name System — translates domain names to IP addresses.
+
+```
+DNS Resolution Flow:
+
+  Browser           OS              Recursive         Root     TLD(.com)   Authoritative
+  Cache             Cache           Resolver          Server   Server      (example.com)
+    │                │               │                  │        │           │
+    │─▶ check      │               │                  │        │           │
+    │  cache?      │               │                  │        │           │
+    │  miss!       │               │                  │        │           │
+    │───────────▶│               │                  │        │           │
+    │             │─▶ /etc/hosts? │                  │        │           │
+    │             │  miss!        │                  │        │           │
+    │             │────────────▶ Who is .com?    │        │           │
+    │             │               │───────────────▶│        │           │
+    │             │               │◀─ .com NS server │        │           │
+    │             │               │  Who is example?         │           │
+    │             │               │──────────────────────▶│           │
+    │             │               │◀─ example.com NS server   │           │
+    │             │               │  Get A record                       │
+    │             │               │───────────────────────────────▶│
+    │             │               │◀─── 93.184.216.34 ───────────┘
+    │             │◀── cached!     │
+    │◀───────────┘               │
+    │ 93.184.216.34
+```
+
 1. Browser checks cache
 2. OS checks `/etc/hosts` and local cache
 3. Query to recursive resolver (ISP DNS or 8.8.8.8)
@@ -194,6 +233,41 @@ Webhook = doorbell (notified when visitor). Polling = looking out window every m
 - **TLS**: Transport Layer Security. Current standard (1.2, 1.3). **Always use TLS 1.2+.**
 
 **29. TLS handshake?**
+
+```
+TLS 1.2 Handshake:
+
+  Client                                     Server
+    │                                           │
+    │──── ClientHello ──────────────────────────▶│
+    │     (supported ciphers, TLS version,       │
+    │      client random)                        │
+    │                                           │
+    │◀─── ServerHello ──────────────────────────│
+    │     (chosen cipher, server random,         │
+    │      certificate + public key)             │
+    │                                           │
+    │     [Client verifies certificate           │
+    │      against trusted CAs]                  │
+    │                                           │
+    │──── Pre-master secret ───────────────────▶│
+    │     (encrypted with server's public key)   │
+    │                                           │
+    │     [Both derive session keys from:        │
+    │      client random + server random +       │
+    │      pre-master secret]                    │
+    │                                           │
+    │──── Finished (encrypted) ────────────────▶│
+    │◀─── Finished (encrypted) ────────────────│
+    │                                           │
+    │◀═══ Symmetric encrypted data ═══════════▶│
+    │     (AES-256-GCM, fast!)                  │
+
+TLS 1.3: Only 1 round-trip (faster!)
+  ClientHello includes key share → server responds with
+  key share + encrypted data immediately
+```
+
 1. Client sends "Hello" with supported ciphers
 2. Server responds with chosen cipher + certificate
 3. Client verifies certificate against trusted CAs
@@ -292,6 +366,27 @@ Access Control List — ordered list of permit/deny rules for network traffic. A
 8. Check application logs → Is the app returning errors?
 
 **47. Request from browser to K8s app?**
+
+```
+Full Request Path:
+
+  Browser                  Cloud LB             Ingress Controller
+  ┌───────────┐          ┌───────────┐       ┌─────────────┐
+  │ 1. DNS     │────────▶│ 2. TLS     │─────▶│ 3. Route     │
+  │    resolve │ HTTPS   │    terminate│  HTTP │    by host/  │
+  │           │          │            │       │    path      │
+  └───────────┘          └───────────┘       └──────┬──────┘
+                                                     │
+          Service (ClusterIP)      Pod                │
+          ┌─────────────┐      ┌──────────┐     │
+          │ 4. kube-proxy │────▶│ 5. App    │◀───┘
+          │    selects   │ iptab│    handles│
+          │    pod IP    │ /IPVS│    request│
+          └─────────────┘      └──────────┘
+
+  Response flows back the same path in reverse
+```
+
 1. User types URL → browser resolves DNS → gets LoadBalancer IP
 2. HTTPS connection to cloud load balancer
 3. LB routes to Ingress Controller pod (Nginx)
@@ -316,6 +411,22 @@ Use cert-manager + Let's Encrypt:
 6. Flush local DNS cache: `systemd-resolve --flush-caches`
 
 **50. TCP vs UDP? When use each?**
+
+```
+TCP 3-Way Handshake:              UDP (no handshake):
+
+  Client         Server            Client         Server
+    │               │                │               │
+    │── SYN ────▶│                │── data ───▶│
+    │               │                │               │  (fire and
+    │◀─ SYN+ACK ──│                │── data ───▶│   forget!)
+    │               │                │               │
+    │── ACK ────▶│                │── data ───▶│
+    │               │                │               │
+    │◀══ data ═══▶│                No guarantee of delivery,
+    │  (reliable)   │                no ordering, no retransmit
+```
+
 | TCP | UDP |
 |---|---|
 | Reliable, ordered | Unreliable, unordered |

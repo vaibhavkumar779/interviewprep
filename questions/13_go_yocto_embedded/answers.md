@@ -52,7 +52,26 @@ require github.com/gorilla/mux v1.8.0
 - `go mod tidy`: Remove unused deps, add missing ones. Run after changing imports.
 
 **7. Goroutines? vs threads?**
+
 Lightweight concurrent functions. `go myFunction()` starts a goroutine.
+
+```
+OS Threads:                         Go Goroutines:
+┌────────────────────────┐      ┌────────────────────────┐
+│ ~1MB stack per thread   │      │ ~2KB stack per goroutine │
+│ OS-managed              │      │ Go runtime-managed       │
+│ Expensive context switch│      │ Cheap context switch     │
+│ Thousands max           │      │ Millions possible!       │
+│                          │      │                          │
+│ ┌───┐ ┌───┐ ┌───┐       │      │ ┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐  │
+│ │ T1│ │ T2│ │ T3│       │      │ │G││G││G││G││G││G││G│  │
+│ └───┘ └───┘ └───┘       │      │ └─┘└─┘└─┘└─┘└─┘└─┘└─┘  │
+│ 3 threads = 3MB          │      │ 7 goroutines = ~14KB     │
+│                          │      │ Multiplexed onto OS      │
+│                          │      │ threads by Go scheduler  │
+└────────────────────────┘      └────────────────────────┘
+```
+
 - **Goroutines**: ~2KB stack, managed by Go runtime, can run millions
 - **OS threads**: ~1MB stack, managed by OS, thousands max
 - Go runtime multiplexes goroutines onto OS threads.
@@ -181,6 +200,39 @@ do_install() {
 
 **22. Layer? How to create?**
 Organized collection of recipes, configurations, and classes:
+
+```
+Yocto Layer Structure:
+
+  meta-ciena/                         ← Custom layer for Ciena
+  ├── conf/
+  │   ├── layer.conf                ← Layer configuration (priority, etc.)
+  │   ├── machine/
+  │   │   └── ciena-ncs.conf        ← Machine-specific config
+  │   └── distro/
+  │       └── ciena-distro.conf     ← Distribution config
+  ├── recipes-core/
+  │   ├── systemd/
+  │   │   └── systemd_%.bbappend    ← Modify existing recipe
+  │   └── base-files/
+  │       └── base-files_%.bbappend
+  ├── recipes-apps/
+  │   └── my-app/
+  │       ├── my-app_1.0.bb         ← Custom recipe
+  │       └── files/
+  │           └── my-app.service    ← Supporting files
+  ├── recipes-images/
+  │   └── ciena-image.bb           ← Custom image recipe
+  └── classes/
+      └── ciena-qa.bbclass         ← Custom QA class
+
+Layer stacking (priority order):
+  meta-ciena (9)         ← highest priority (overrides)
+  meta-openembedded (7)
+  meta-poky (5)
+  meta (OE-Core) (1)    ← base layer
+```
+
 ```bash
 bitbake-layers create-layer meta-mycompany
 # Creates:
@@ -211,6 +263,30 @@ Layer providing support for specific hardware: kernel configuration, bootloader,
 - Custom images defined in recipes
 
 **28. Build workflow?**
+
+```
+Yocto/BitBake Build Workflow:
+
+  Source Code                                              Output
+  ┌────────┐     ┌────────┐     ┌────────┐     ┌────────┐     ┌──────────────┐
+  │ Fetch   │────▶│ Unpack │────▶│ Patch  │────▶│Configure│────▶│ Compile      │
+  │ (git,   │     │ (extract│    │ (apply │     │(autoconf│     │ (make,       │
+  │  http,  │     │  tar)   │    │ .patch)│     │ cmake)  │     │  cmake)      │
+  │  local) │     └────────┘    └────────┘     └────────┘     └──────┬───────┘
+  └────────┘                                                        │
+                                                                     ▼
+  ┌──────────────┐     ┌────────────┐     ┌─────────────┐     ┌──────────────┐
+  │  Image        │◀────│  Package   │◀────│  Install    │◀────│              │
+  │  (rootfs      │     │  (.deb,    │     │  (staging   │     │              │
+  │   .ext4,      │     │   .rpm,    │     │   area)     │     │              │
+  │   .wic)       │     │   .ipk)    │     │             │     │              │
+  └──────────────┘     └────────────┘     └─────────────┘     └──────────────┘
+
+  sstate-cache: Caches output of EACH step
+  If inputs unchanged → skip step → use cached output
+  First build: 2-8 hours  │  With sstate: ~30 minutes
+```
+
 1. **Fetch**: Download source code (git, http, local)
 2. **Unpack**: Extract sources
 3. **Patch**: Apply patches
@@ -403,6 +479,27 @@ Track in `/etc/firmware-version` on device.
 **50. OTA updates?**
 Update firmware remotely without physical access:
 - Tools: SWUpdate, Mender, RAUC, hawkBit
+
+```
+A/B Partition OTA Update:
+
+  Flash Memory:
+  ┌─────────────────────────────────────────────┐
+  │ Bootloader │ Partition A (active) │ Partition B (standby)│
+  │            │ v3.1.0 ★ booting   │ v3.0.0 (old)         │
+  └────────────┴─────────────────────┴─────────────────────┘
+
+  OTA Update Process:
+  1. Download v3.2.0 to Partition B (standby)
+  2. Verify checksum + signature
+  3. Set bootloader to boot from B next time
+  4. Reboot → boots into B (v3.2.0)
+  5. Health check passes → mark B as active
+  6. Health check fails  → revert to A (v3.1.0)
+
+  Result: Zero downtime, guaranteed rollback!
+```
+
 - Strategy: A/B partition scheme (boot from A, update B, switch on success, rollback if failure)
 - Security: Signed images, encrypted transport
 

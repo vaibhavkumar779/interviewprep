@@ -1,4 +1,4 @@
-# Kubernetes - COMPREHENSIVE ANSWERS (All 134 Questions)
+# Kubernetes — COMPREHENSIVE ANSWERS (All 134 Questions)
 
 ---
 
@@ -7,150 +7,443 @@
 ### Fundamentals
 
 **1. What is Kubernetes?**
-Open-source container orchestration platform. Automates deployment, scaling, self-healing of containerized apps. Originally by Google, maintained by CNCF.
+
+Open-source container orchestration platform. Automates deployment, scaling, self-healing of containerized apps. Originally by Google (Borg → K8s), maintained by CNCF.
+
+```
+What Kubernetes does:
+  ┌─────────────────────────────────────────────────────┐
+  │  You tell K8s: "I want 3 replicas of my app"       │
+  │  K8s ensures: 3 replicas are ALWAYS running         │
+  │                                                     │
+  │  Pod crashes?    → K8s restarts it automatically    │
+  │  Node dies?      → K8s reschedules pods elsewhere   │
+  │  Traffic spikes? → K8s scales up (HPA)              │
+  │  New version?    → K8s rolls out with zero downtime │
+  └─────────────────────────────────────────────────────┘
+```
+
+---
 
 **2. Container orchestration? Why not just Docker?**
-Docker runs single containers. When you have 50+ containers across multiple servers, you need: automated placement, scaling, load balancing, self-healing, rolling updates, service discovery. That's orchestration.
+
+Docker runs containers on ONE machine. In production you have 50+ containers across multiple servers — you need:
+
+```
+Docker alone:                      With Kubernetes:
+┌──────────────────────┐          ┌──────────────────────────┐
+│ Node 1: docker run   │          │ Automated placement      │
+│ Node 2: docker run   │          │ Self-healing             │
+│ Node 3: docker run   │          │ Rolling updates          │
+│                      │          │ Load balancing           │
+│ Manual everything:   │          │ Service discovery (DNS)  │
+│ - Placement ❌       │          │ Scaling (HPA/VPA)        │
+│ - Health checks ❌   │          │ Secret management        │
+│ - Scaling ❌         │          │ Config management        │
+│ - Updates ❌         │          │ Storage orchestration    │
+│ - Recovery ❌        │          │ All automatic! ✅        │
+└──────────────────────┘          └──────────────────────────┘
+```
+
+---
 
 **3. K8s architecture?**
-**Control Plane**: API Server (front door), etcd (state store), Scheduler (places pods), Controller Manager (ensures desired state).
-**Worker Nodes**: kubelet (manages pods), kube-proxy (networking), container runtime (containerd).
+
+```
+┌─── Kubernetes Cluster ─────────────────────────────────────────────────┐
+│                                                                         │
+│  ┌─── Control Plane ──────────────────────────────────────────────┐    │
+│  │                                                                 │    │
+│  │  ┌──────────┐  ┌──────────┐  ┌───────────┐  ┌──────────────┐ │    │
+│  │  │ API      │  │ etcd     │  │ Scheduler │  │ Controller   │ │    │
+│  │  │ Server   │  │ (state   │  │ (place    │  │ Manager      │ │    │
+│  │  │ (front   │  │  store)  │  │  pods on  │  │ (reconcile   │ │    │
+│  │  │  door)   │  │          │  │  nodes)   │  │  desired vs  │ │    │
+│  │  │          │  │          │  │           │  │  actual)     │ │    │
+│  │  └────┬─────┘  └──────────┘  └───────────┘  └──────────────┘ │    │
+│  └───────┼─────────────────────────────────────────────────────────┘    │
+│          │                                                              │
+│  ┌───────▼─── Worker Node 1 ──────┐  ┌─── Worker Node 2 ──────────┐  │
+│  │  ┌─────────┐  ┌──────────────┐ │  │  ┌─────────┐  ┌──────────┐ │  │
+│  │  │ kubelet │  │ kube-proxy   │ │  │  │ kubelet │  │kube-proxy│ │  │
+│  │  └────┬────┘  └──────────────┘ │  │  └────┬────┘  └──────────┘ │  │
+│  │  ┌────▼────┐                   │  │  ┌────▼────┐               │  │
+│  │  │Container│                   │  │  │Container│               │  │
+│  │  │ Runtime │                   │  │  │ Runtime │               │  │
+│  │  │(contd)  │                   │  │  │(contd)  │               │  │
+│  │  └─────────┘                   │  │  └─────────┘               │  │
+│  │  ┌──────┐ ┌──────┐ ┌──────┐  │  │  ┌──────┐ ┌──────┐        │  │
+│  │  │Pod A │ │Pod B │ │Pod C │  │  │  │Pod D │ │Pod E │        │  │
+│  │  └──────┘ └──────┘ └──────┘  │  │  └──────┘ └──────┘        │  │
+│  └────────────────────────────────┘  └────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+---
 
 **4. Control plane components?**
-- **API Server**: RESTful API, all commands go through here
-- **etcd**: Distributed key-value store, holds ALL cluster state
-- **Scheduler**: Watches for unscheduled pods, picks best node based on resources/constraints
-- **Controller Manager**: Runs controllers (ReplicaSet, Deployment, Node, Job controllers)
+
+| Component | Role | Analogy |
+|-----------|------|---------|
+| **API Server** | Front door — ALL requests go through here | Reception desk |
+| **etcd** | Distributed key-value store — ALL cluster state | Database |
+| **Scheduler** | Watches for unscheduled pods, picks best node | Job placement officer |
+| **Controller Manager** | Runs control loops — ensures desired = actual state | Supervisor |
+
+```
+How they work together:
+  kubectl apply ──► API Server ──► validates ──► stores in etcd
+                         │
+                    Scheduler watches ──► assigns pod to node
+                         │
+                    Controller Manager watches ──► ensures replicas match
+                         │
+                    kubelet on node ──► pulls image, starts container
+```
+
+---
 
 **5. kubelet?**
-Agent running on every worker node. Receives pod specs from API server, ensures containers are running and healthy. Reports node status back.
+
+Agent running on **every worker node**. Receives pod specs from API server, ensures containers are running and healthy. Reports node status back. Does NOT manage containers not created by K8s.
+
+---
 
 **6. kube-proxy?**
-Network proxy on each node. Maintains iptables/IPVS rules to route traffic to correct pods. Implements Service abstraction.
+
+Network proxy on each node. Maintains iptables/IPVS rules to route traffic to correct pods. Implements the Service abstraction (virtual IP → actual pod IPs).
+
+```
+Service IP: 10.96.0.10:80
+           │
+    kube-proxy creates rules:
+           │
+    ┌──────▼──────┐
+    │  iptables/  │
+    │  IPVS rules │
+    └──────┬──────┘
+     ┌─────┼─────┐
+     ▼     ▼     ▼
+  Pod A  Pod B  Pod C    (round-robin load balancing)
+```
+
+---
 
 **7. etcd?**
-Distributed key-value store holding entire cluster state. Critical because if etcd is lost, you lose cluster state. Must be backed up regularly. Runs on control plane.
+
+Distributed key-value store holding **entire cluster state** — pods, services, secrets, configmaps, RBAC, everything.
+
+```
+Critical facts:
+  - If etcd is lost → you lose ALL cluster state
+  - Must be backed up regularly (etcdctl snapshot save)
+  - Runs on control plane (or separate nodes for HA)
+  - Uses Raft consensus for distributed consistency
+  - Only API Server communicates directly with etcd
+```
+
+---
 
 **8. API server?**
-Central management point. All kubectl commands, kubelet calls, and controller interactions go through it. Authenticates, authorizes (RBAC), validates, and stores in etcd.
+
+Central management point. ALL interactions go through it:
+
+```
+kubectl ──────────►│
+kubelet ──────────►│ API Server ──► AuthN ──► AuthZ ──► Admission ──► etcd
+Controllers ──────►│              (who?)   (allowed?) (mutate/validate)
+Dashboard ────────►│
+```
+
+---
 
 **9. kubectl? 10 daily commands?**
+
 ```bash
-kubectl get pods -o wide                    # List pods with node info
-kubectl get pods --all-namespaces           # All namespaces
-kubectl describe pod <pod>                  # Detailed pod info + events
+kubectl get pods -o wide                    # Pods + node + IP
+kubectl get pods --all-namespaces           # ALL namespaces
+kubectl describe pod <pod>                  # Detailed info + events
 kubectl logs <pod> -f                       # Follow logs
 kubectl logs <pod> --previous               # Previous crash logs
 kubectl exec -it <pod> -- /bin/sh           # Shell into pod
 kubectl apply -f manifest.yaml              # Apply configuration
 kubectl delete pod <pod>                    # Delete pod
 kubectl get events --sort-by=.lastTimestamp # Recent events
-kubectl top pods                            # Resource usage
+kubectl top pods                            # Resource usage (needs metrics-server)
 ```
 
+---
+
 **10. Namespace?**
-Virtual cluster for logical isolation. Use cases: separate teams (team-a, team-b), environments (dev, staging), or applications. Default namespaces: default, kube-system, kube-public.
+
+Virtual cluster within a cluster for logical isolation.
+
+```
+┌─── Cluster ─────────────────────────────────────┐
+│                                                   │
+│  ┌─── default ──────┐  ┌─── kube-system ───┐   │
+│  │ user workloads   │  │ K8s components    │   │
+│  │ (when no ns set) │  │ CoreDNS, kube-    │   │
+│  └──────────────────┘  │ proxy, metrics    │   │
+│                         └───────────────────┘   │
+│  ┌─── team-a ───────┐  ┌─── team-b ────────┐  │
+│  │ Team A's apps    │  │ Team B's apps     │  │
+│  │ ResourceQuota    │  │ ResourceQuota     │  │
+│  │ NetworkPolicy    │  │ NetworkPolicy     │  │
+│  └──────────────────┘  └───────────────────┘  │
+└───────────────────────────────────────────────────┘
+```
+
+Default namespaces: `default`, `kube-system`, `kube-public`, `kube-node-lease`.
+
+---
 
 **11. What is a node? Add node?**
-A node is a worker machine (VM or physical). Add node: install container runtime + kubelet + kube-proxy, then join with `kubeadm join <api-server>:6443 --token <token>`. In managed K8s (AKS/EKS), add via node pool scaling.
+
+A node is a worker machine (VM or physical). Add:
+```bash
+# kubeadm (self-managed)
+kubeadm join <api-server>:6443 --token <token> --discovery-token-ca-cert-hash sha256:<hash>
+
+# Managed K8s (AKS) — scale node pool
+az aks nodepool scale --resource-group rg --cluster-name aks --name nodepool1 --node-count 5
+```
+
+---
 
 **12. Managed vs self-managed K8s?**
-| Managed (AKS/EKS/GKE) | Self-managed (kubeadm) |
-|---|---|
-| Cloud manages control plane | You manage everything |
-| Auto-upgrades available | Manual upgrades |
-| Integrated with cloud IAM/networking | You configure everything |
-| $$$ (cloud pricing) | Your hardware costs |
-| Great for most teams | Full control, complex setups |
+
+| Aspect | Managed (AKS/EKS/GKE) | Self-managed (kubeadm) |
+|--------|------------------------|------------------------|
+| Control plane | Cloud manages | You manage |
+| Upgrades | Automated / one-click | Manual |
+| IAM integration | Built-in | Configure yourself |
+| Networking | Cloud CNI | You choose CNI |
+| Cost | Cloud pricing | Your hardware |
+| Maintenance | Low | High |
+| Best for | Most teams | Full control needed |
+
+---
 
 ### Pods
 
 **13. What is a Pod?**
-Smallest deployable unit. One or more containers sharing network namespace (same IP, localhost) and storage volumes. Usually 1 container per pod. Pod gets scheduled to a node as a unit.
+
+Smallest deployable unit in K8s. One or more containers sharing:
+
+```
+┌─── Pod ─────────────────────────────────────┐
+│                                              │
+│  ┌───────────────┐  ┌───────────────┐       │
+│  │ App Container │  │ Sidecar       │       │
+│  │ (main app)    │  │ (logging/     │       │
+│  │               │  │  monitoring)  │       │
+│  └───────┬───────┘  └───────┬───────┘       │
+│          │                   │               │
+│  ┌───────▼───────────────────▼───────┐      │
+│  │ Shared Network Namespace          │      │
+│  │ (same IP, localhost, same ports)  │      │
+│  └───────────────────────────────────┘      │
+│  ┌───────────────────────────────────┐      │
+│  │ Shared Volumes                    │      │
+│  └───────────────────────────────────┘      │
+│                                              │
+│  Pod IP: 10.244.1.5                         │
+└──────────────────────────────────────────────┘
+```
+
+Usually **1 container per pod**. Multiple only for tightly coupled helpers (sidecars).
+
+---
 
 **14. Multiple containers in a Pod?**
-Yes. Use cases: sidecar pattern (logging agent, proxy), adapter pattern (format converter), ambassador pattern (proxy to external service). All containers share network + volumes.
+
+```
+Sidecar Pattern:          Adapter Pattern:         Ambassador Pattern:
+┌─────────────────┐      ┌─────────────────┐      ┌─────────────────┐
+│ App + Log Agent │      │ App + Format    │      │ App + DB Proxy  │
+│                 │      │    Converter    │      │                 │
+│ App writes logs │      │ App outputs     │      │ App connects to │
+│ Agent ships to  │      │ custom format   │      │ localhost:5432  │
+│ central logging │      │ Adapter converts│      │ Proxy routes to │
+│                 │      │ to standard     │      │ correct DB      │
+└─────────────────┘      └─────────────────┘      └─────────────────┘
+```
+
+---
 
 **15. Sidecar container? 3 examples.**
-A helper container running alongside the main container:
-1. **Log collector**: Fluent Bit sidecar shipping logs to Loki
-2. **Service mesh proxy**: Istio Envoy sidecar handling traffic
-3. **Config syncer**: Sidecar that watches ConfigMap and reloads app config
+
+1. **Log collector**: Fluent Bit sidecar shipping logs to Loki/ELK
+2. **Service mesh proxy**: Istio Envoy sidecar handling mTLS + traffic
+3. **Config syncer**: Sidecar that watches ConfigMap changes and reloads app config
+
+---
 
 **16. Init container?**
-Runs to completion before app containers start. Use cases: wait for database to be ready, clone a Git repo, run DB migrations, set file permissions. Runs sequentially if multiple.
+
+Runs to completion **before** app containers start. Sequential if multiple.
+
 ```yaml
 initContainers:
 - name: wait-for-db
   image: busybox
   command: ['sh', '-c', 'until nc -z postgres 5432; do sleep 2; done']
+- name: run-migrations
+  image: myapp:latest
+  command: ['python', 'manage.py', 'migrate']
 ```
+
+Use cases: wait for dependency, clone repo, run DB migrations, set permissions.
+
+---
 
 **17. Pod lifecycle?**
-- **Pending**: Accepted but not yet scheduled or images downloading
-- **Running**: At least one container running
-- **Succeeded**: All containers exited with code 0 (Jobs)
-- **Failed**: At least one container exited with non-zero
-- **Unknown**: Node communication lost
 
-**18. Get logs from Pod? Previous crash?**
-```bash
-kubectl logs <pod>                        # Current logs
-kubectl logs <pod> -c <container>         # Specific container
-kubectl logs <pod> --previous             # Previous crash instance
-kubectl logs <pod> --since=1h             # Last hour
-kubectl logs <pod> --tail=100             # Last 100 lines
-kubectl logs -l app=myapp --all-containers # All pods with label
+```
+                                  ┌─────────┐
+  kubectl apply ──► Pending ──► │ Running │ ──► Succeeded (Jobs)
+                      │          └────┬────┘        or
+                      │               │          Failed (crash)
+                      │               │
+                   Reasons:        Reasons:      ┌─────────┐
+                   - Scheduling    - OOMKilled   │ Unknown │
+                   - Image pull    - Error       │(node    │
+                   - No resources  - App crash   │ lost)   │
+                                                  └─────────┘
 ```
 
+| Phase | Meaning |
+|-------|---------|
+| Pending | Accepted but not scheduled, or images downloading |
+| Running | At least one container running |
+| Succeeded | All containers exited 0 (Jobs/batch) |
+| Failed | At least one container exited non-zero |
+| Unknown | Node communication lost |
+
+---
+
+**18. Get logs from Pod? Previous crash?**
+
+```bash
+kubectl logs <pod>                        # Current logs
+kubectl logs <pod> -c <container>         # Specific container in multi-container pod
+kubectl logs <pod> --previous             # Previous crashed container instance
+kubectl logs <pod> --since=1h             # Last hour
+kubectl logs <pod> --tail=100             # Last 100 lines
+kubectl logs <pod> -f                     # Follow (stream)
+kubectl logs -l app=myapp --all-containers  # All pods with label
+```
+
+---
+
 **19. Exec into Pod?**
+
 ```bash
 kubectl exec -it <pod> -- /bin/sh         # Interactive shell
 kubectl exec -it <pod> -c <container> -- bash  # Specific container
 kubectl exec <pod> -- cat /etc/config     # One-off command
+kubectl exec <pod> -- env                 # Check environment variables
 ```
 
+---
+
 **20. What happens when Pod is deleted?**
-1. Pod enters `Terminating` state
-2. kubelet sends SIGTERM to containers
-3. Waits `terminationGracePeriodSeconds` (default 30s)
-4. If still running, sends SIGKILL
-5. Pod removed from Service endpoints (no more traffic)
-6. Pod removed from API server
+
+```
+kubectl delete pod myapp
+  │
+  ├─ 1. Pod enters "Terminating" state
+  ├─ 2. Removed from Service endpoints (no new traffic)
+  ├─ 3. preStop hook runs (if defined)
+  ├─ 4. SIGTERM sent to containers
+  ├─ 5. Wait terminationGracePeriodSeconds (default 30s)
+  ├─ 6. SIGKILL sent (if still running)
+  └─ 7. Pod removed from API server + etcd
+```
+
+---
 
 ### Workloads
 
 **21. Deployment?**
-Manages ReplicaSets which manage Pods. Provides: declarative updates, rolling updates, rollback, scaling. **Always use Deployment** for stateless apps.
+
+Manages ReplicaSets which manage Pods. The **go-to** for stateless apps.
+
+```
+Deployment (declarative spec)
+    │
+    └──► ReplicaSet (ensures N replicas)
+              │
+              ├──► Pod 1
+              ├──► Pod 2
+              └──► Pod 3
+
+Provides: rolling updates, rollback, scaling, self-healing
+```
+
+---
 
 **22. ReplicaSet vs Deployment?**
-ReplicaSet ensures N pod replicas running. Deployment manages ReplicaSets and adds rolling updates + rollback. **Never create ReplicaSet directly** — use Deployment.
+
+| ReplicaSet | Deployment |
+|------------|------------|
+| Ensures N pod replicas | Manages ReplicaSets |
+| No rolling updates | Rolling updates + rollback |
+| No revision history | Revision history |
+| **Never create directly** | **Always use this** |
+
+---
 
 **23. DaemonSet? 3 use cases.**
-Ensures one pod on every node (or selected nodes).
+
+Ensures **one pod on every node** (or selected nodes).
+
+```
+┌── Node 1 ──┐  ┌── Node 2 ──┐  ┌── Node 3 ──┐
+│ ┌────────┐ │  │ ┌────────┐ │  │ ┌────────┐ │
+│ │DaemonSet│ │  │ │DaemonSet│ │  │ │DaemonSet│ │
+│ │  Pod   │ │  │ │  Pod   │ │  │ │  Pod   │ │
+│ └────────┘ │  │ └────────┘ │  │ └────────┘ │
+└────────────┘  └────────────┘  └────────────┘
+New node added? DaemonSet pod auto-created!
+```
+
 1. **Log collector**: Fluent Bit/Fluentd on every node
 2. **Monitoring agent**: Node Exporter (Prometheus) on every node
 3. **Network plugin**: Calico/Cilium CNI agent on every node
 
+---
+
 **24. StatefulSet vs Deployment?**
-| Deployment | StatefulSet |
-|---|---|
-| Stateless apps | Stateful apps (DB, Kafka) |
-| Pods are interchangeable | Pods have stable identity (pod-0, pod-1) |
-| Random pod names | Ordered, predictable names |
-| Shared storage optional | Persistent storage per pod |
-| Parallel scaling | Ordered deployment/scaling |
+
+| Aspect | Deployment | StatefulSet |
+|--------|-----------|-------------|
+| For | Stateless apps | Stateful apps (DB, Kafka, ZK) |
+| Pod names | Random (myapp-x7k2p) | Ordered (myapp-0, myapp-1) |
+| Pod identity | Interchangeable | Stable, unique identity |
+| Storage | Shared or none | Persistent per pod (PVC template) |
+| Scaling | Parallel | Ordered (0→1→2) |
+| DNS | Via Service only | Individual: `pod-0.svc.ns.svc.cluster.local` |
+
+---
 
 **25. Job vs CronJob?**
-- **Job**: Run to completion, then done. Use: DB migration, batch processing, data export.
-- **CronJob**: Scheduled Job. `schedule: "0 2 * * *"` = daily at 2am.
+
+```
+Job:      Run once ──► Complete ──► Done
+CronJob:  Schedule ──► Create Job ──► Complete ──► Wait ──► Repeat
+```
+
 ```yaml
 apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: cleanup
 spec:
-  schedule: "0 0 * * *"    # midnight daily
+  schedule: "0 0 * * *"          # midnight daily (cron syntax)
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
   jobTemplate:
     spec:
       template:
@@ -162,39 +455,95 @@ spec:
           restartPolicy: OnFailure
 ```
 
+---
+
 **26. Rolling update vs Recreate?**
-- **RollingUpdate**: Gradually replaces old pods. Zero downtime. Default.
-- **Recreate**: Kills all old pods first, then creates new. Brief downtime. Use when app can't run two versions simultaneously.
+
+```
+RollingUpdate (default):               Recreate:
+┌───────────────────────┐              ┌───────────────────────┐
+│ v1 v1 v1              │              │ v1 v1 v1              │
+│ v1 v1 v2 ← new pod   │              │ (all killed)          │
+│ v1 v2 v2              │              │ v2 v2 v2 ← all new   │
+│ v2 v2 v2              │              │                       │
+│                       │              │                       │
+│ Zero downtime ✅      │              │ Brief downtime ❌     │
+│ Two versions coexist  │              │ Clean cutover         │
+└───────────────────────┘              └───────────────────────┘
+```
+
+Use Recreate when app can't run two versions simultaneously (e.g., DB schema incompatibility).
+
+---
 
 **27. maxSurge and maxUnavailable?**
+
 ```yaml
 strategy:
   type: RollingUpdate
   rollingUpdate:
-    maxSurge: 1          # Max 1 extra pod during update (4 total if replicas=3)
-    maxUnavailable: 0    # Never fewer than 3 running (zero downtime)
+    maxSurge: 1          # Max extra pods during update
+    maxUnavailable: 0    # Never fewer than desired running
+
+# With replicas=3, maxSurge=1, maxUnavailable=0:
+#   Step 1: 3 old + 1 new = 4 total (surge)
+#   Step 2: 2 old + 2 new = 4 total
+#   Step 3: 1 old + 3 new = 4 total
+#   Step 4: 0 old + 3 new = 3 total (done)
 ```
-maxSurge=25% maxUnavailable=25% is the default.
+
+Default: maxSurge=25%, maxUnavailable=25%.
+
+---
 
 **28. Rollback a Deployment?**
+
 ```bash
-kubectl rollout undo deployment/myapp                    # Rollback to previous
+kubectl rollout undo deployment/myapp                    # Previous revision
 kubectl rollout undo deployment/myapp --to-revision=3    # Specific revision
-kubectl rollout history deployment/myapp                 # View revision history
-kubectl rollout status deployment/myapp                  # Check rollout status
+kubectl rollout history deployment/myapp                 # View history
+kubectl rollout status deployment/myapp                  # Check status
+kubectl rollout pause deployment/myapp                   # Pause rollout
+kubectl rollout resume deployment/myapp                  # Resume
 ```
 
+---
+
 **29. Scale a Deployment?**
+
 ```bash
 # Manual
 kubectl scale deployment/myapp --replicas=5
 
-# Auto (HPA)
+# Auto (HPA — Horizontal Pod Autoscaler)
 kubectl autoscale deployment/myapp --min=2 --max=10 --cpu-percent=70
 ```
 
+---
+
 **30. Horizontal Pod Autoscaler (HPA)?**
-Auto-scales pod count based on CPU/memory/custom metrics:
+
+```
+                    CPU > 70%?
+                        │
+            ┌───────────▼───────────┐
+            │  HPA checks metrics   │ (every 15s)
+            │  via metrics-server   │
+            └───────────┬───────────┘
+                        │
+              ┌─────────▼─────────┐
+              │ Scale up replicas │
+              │ 3 → 5 → 8 → 10   │
+              └─────────┬─────────┘
+                        │
+              CPU < 70% for 5min?
+                        │
+              ┌─────────▼─────────┐
+              │ Scale down         │
+              │ 10 → 5 → 3 → 2   │
+              └───────────────────┘
+```
+
 ```yaml
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
@@ -214,9 +563,12 @@ spec:
         averageUtilization: 70
 ```
 
-### Interview-Style
+---
+
+### Interview-Style (Basics)
 
 **31. Deployment manifest for nginx with 3 replicas:**
+
 ```yaml
 apiVersion: apps/v1
 kind: Deployment
@@ -258,68 +610,216 @@ spec:
           periodSeconds: 5
 ```
 
-**32. Pod in Pending state - 5 reasons?**
-1. **Insufficient resources**: No node has enough CPU/memory → scale up cluster
-2. **Node selector/affinity mismatch**: Pod requires specific node label → fix selector
-3. **PVC not bound**: Requested storage not available → check StorageClass
-4. **Image pulling**: Large image still downloading → check image name
-5. **Taints preventing scheduling**: Node has taint, pod has no toleration → add toleration
+---
+
+**32. Pod in Pending state — 5 reasons?**
+
+```
+Pending Pod Diagnosis:
+┌──────────────────────────────────────────────────┐
+│ 1. Insufficient resources (CPU/memory)           │
+│    → kubectl describe pod → "Insufficient cpu"   │
+│    → Scale up node pool or reduce requests       │
+│                                                   │
+│ 2. Node selector/affinity mismatch               │
+│    → Pod requires label that no node has          │
+│    → Fix nodeSelector or label nodes              │
+│                                                   │
+│ 3. PVC not bound (storage unavailable)            │
+│    → kubectl get pvc → check status               │
+│    → Check StorageClass exists                    │
+│                                                   │
+│ 4. Image pulling (large image / slow registry)    │
+│    → kubectl describe pod → "Pulling image"       │
+│    → Check image name, registry access            │
+│                                                   │
+│ 5. Taints preventing scheduling                   │
+│    → Node has taint, pod has no toleration         │
+│    → Add toleration or remove taint               │
+└──────────────────────────────────────────────────┘
+```
+
+---
 
 **33. CrashLoopBackOff debugging:**
-1. `kubectl logs <pod> --previous` → check application error
-2. `kubectl describe pod <pod>` → check events (OOMKilled? ImagePullError?)
-3. Check if config/secret is missing: `kubectl get configmap`, `kubectl get secret`
-4. Check if port is already in use or permission denied
-5. Test image locally: `docker run -it <image> /bin/sh`
+
+```
+CrashLoopBackOff = container keeps crashing and K8s keeps restarting
+
+Debug Flow:
+  kubectl logs <pod> --previous     ← #1: Check WHY it crashed
+        │
+  kubectl describe pod <pod>        ← #2: Check events (OOMKilled?)
+        │
+  kubectl get cm,secret -n <ns>    ← #3: Missing config/secret?
+        │
+  docker run -it <image> sh        ← #4: Test image locally
+        │
+  Common causes:
+    - Application error / exception
+    - OOMKilled (memory limit too low)
+    - Missing env var or config
+    - Wrong CMD / entrypoint
+    - Port conflict
+    - Permission denied (non-root user)
+```
+
+---
 
 **34. Zero-downtime deployments?**
-1. Use RollingUpdate strategy with maxUnavailable=0
-2. Configure readinessProbe (pod gets traffic only when ready)
-3. Use preStop lifecycle hook (graceful shutdown: `sleep 5` before SIGTERM)
-4. Set terminationGracePeriodSeconds appropriately
-5. PodDisruptionBudget to maintain minimum available pods
+
+```
+5 Requirements for Zero Downtime:
+  ┌──────────────────────────────────────────────┐
+  │ 1. RollingUpdate + maxUnavailable=0          │
+  │ 2. readinessProbe (traffic only when ready)  │
+  │ 3. preStop hook: sleep 5 (drain connections) │
+  │ 4. terminationGracePeriodSeconds: 30+        │
+  │ 5. PodDisruptionBudget (min available)       │
+  └──────────────────────────────────────────────┘
+```
+
+---
 
 **35. URL → K8s app flow:**
-1. User types URL → DNS resolves to LoadBalancer IP
-2. Cloud Load Balancer receives traffic
-3. Traffic hits Ingress Controller (Nginx) pod
-4. Ingress rules match hostname/path → routes to Service
-5. Service selects pods via label selector → kube-proxy routes to pod IP
-6. Pod's container processes the request
+
+```
+User types https://app.example.com
+    │
+┌───▼────────────────┐
+│ DNS Resolution     │ app.example.com → Load Balancer IP
+└───┬────────────────┘
+    │
+┌───▼────────────────┐
+│ Cloud Load Balancer│ (Azure LB / AWS ALB)
+└───┬────────────────┘
+    │
+┌───▼────────────────┐
+│ Ingress Controller │ (nginx pod in cluster)
+│ Matches host/path  │
+└───┬────────────────┘
+    │
+┌───▼────────────────┐
+│ Service            │ (ClusterIP — virtual IP)
+│ Label selector     │ → selects matching pods
+└───┬────────────────┘
+    │
+┌───▼────────────────┐
+│ kube-proxy         │ iptables/IPVS rules
+│ Routes to pod IP   │
+└───┬────────────────┘
+    │
+┌───▼────────────────┐
+│ Pod                │ Container processes request
+└────────────────────┘
+```
 
 ---
 
 ## NETWORKING & SERVICES (34 Qs)
 
-**1-8.** (Already covered above in basics)
+### Service Types
+
+**1. What is a Service?**
+
+Stable networking abstraction over ephemeral pods. Pods come and go — Service provides a stable IP and DNS name.
+
+```
+Without Service:                   With Service:
+┌────────────────────┐            ┌────────────────────┐
+│ Pod IP changes     │            │ Service: 10.96.0.10│
+│ every restart!     │            │ DNS: myapp-svc     │
+│                    │            │      │              │
+│ Client must track  │            │ ┌────▼────┐        │
+│ all pod IPs ❌     │            │ │ Pod A   │        │
+│                    │            │ │ Pod B   │        │
+│                    │            │ │ Pod C   │        │
+│                    │            │ └─────────┘        │
+│                    │            │ Stable endpoint ✅  │
+└────────────────────┘            └────────────────────┘
+```
+
+---
+
+**2-8. Service Types:**
+
+```
+┌─── ClusterIP (default) ──────────────────────────────────────┐
+│  Internal only — accessible within cluster                    │
+│  Gets virtual IP from service CIDR (e.g., 10.96.0.10)       │
+│  DNS: myapp.namespace.svc.cluster.local                      │
+│  Use: inter-service communication                            │
+└──────────────────────────────────────────────────────────────┘
+
+┌─── NodePort ─────────────────────────────────────────────────┐
+│  Exposes on every node's IP at a static port (30000-32767)   │
+│  External access: <NodeIP>:<NodePort>                        │
+│  Use: dev/testing, on-prem without cloud LB                  │
+└──────────────────────────────────────────────────────────────┘
+
+┌─── LoadBalancer ─────────────────────────────────────────────┐
+│  Cloud provider provisions external load balancer            │
+│  Gets public IP automatically                                │
+│  Use: production external services                           │
+└──────────────────────────────────────────────────────────────┘
+
+┌─── ExternalName ─────────────────────────────────────────────┐
+│  DNS CNAME record pointing to external service               │
+│  No proxy, no port — just DNS alias                          │
+│  Use: map external DB to internal DNS name                   │
+└──────────────────────────────────────────────────────────────┘
+```
+
+| Type | Scope | Port Range | Cloud Required? |
+|------|-------|------------|-----------------|
+| ClusterIP | Internal | Any | No |
+| NodePort | External | 30000-32767 | No |
+| LoadBalancer | External | Any | Yes |
+| ExternalName | DNS alias | N/A | No |
+
+---
 
 **9. Endpoints object?**
-Automatically created for each Service. Contains the list of pod IPs matching the Service's selector. Updated as pods are created/destroyed.
+
+Auto-created for each Service. Contains pod IPs matching the Service's selector. Updated as pods are created/destroyed.
+
 ```bash
 kubectl get endpoints myapp-svc
 # NAME        ENDPOINTS                               AGE
 # myapp-svc   10.244.1.5:8080,10.244.2.3:8080        5m
 ```
 
+If endpoints list is empty → **selector doesn't match any pods** (label mismatch).
+
+---
+
 **10. Headless Service?**
-Service with `clusterIP: None`. No load balancing, no virtual IP. DNS returns individual pod IPs directly. Used with StatefulSets where clients need to connect to specific pods.
+
+Service with `clusterIP: None`. No load balancing, no virtual IP. DNS returns individual pod IPs.
+
 ```yaml
 apiVersion: v1
 kind: Service
 metadata:
   name: db-headless
 spec:
-  clusterIP: None
+  clusterIP: None          # ← Headless!
   selector:
     app: postgres
   ports:
   - port: 5432
-# DNS: pod-0.db-headless.namespace.svc.cluster.local
+# DNS returns: pod-0.db-headless.ns.svc.cluster.local → 10.244.1.5
+#              pod-1.db-headless.ns.svc.cluster.local → 10.244.2.3
 ```
 
-**11. Write Service manifests:**
+Used with StatefulSets where clients need specific pods.
+
+---
+
+**11. Service manifests:**
+
 ```yaml
-# ClusterIP (internal only)
+# ─── ClusterIP ───
 apiVersion: v1
 kind: Service
 metadata:
@@ -332,7 +832,7 @@ spec:
   - port: 80
     targetPort: 8080
 ---
-# NodePort (external via node IP)
+# ─── NodePort ───
 apiVersion: v1
 kind: Service
 metadata:
@@ -346,7 +846,7 @@ spec:
     targetPort: 8080
     nodePort: 30080
 ---
-# LoadBalancer (cloud LB)
+# ─── LoadBalancer ───
 apiVersion: v1
 kind: Service
 metadata:
@@ -360,9 +860,31 @@ spec:
     targetPort: 8080
 ```
 
-**12-16.** (Ingress basics covered above)
+---
+
+### Ingress
+
+**12-16. What is Ingress?**
+
+L7 (HTTP) load balancer. Routes external traffic to internal Services based on host and path.
+
+```
+Internet ──► Ingress Controller (nginx pod)
+                    │
+             ┌──────┴──────┐
+             │  Ingress     │
+             │  Rules       │
+             └──────┬──────┘
+               ┌────┼────┐
+               ▼    ▼    ▼
+          /api   /web   /auth
+          svc    svc    svc
+```
+
+---
 
 **17. TLS/SSL with Ingress?**
+
 ```yaml
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -375,7 +897,7 @@ spec:
   tls:
   - hosts:
     - app.example.com
-    secretName: app-tls-secret    # Contains tls.crt and tls.key
+    secretName: app-tls-secret       # cert-manager auto-creates this
   rules:
   - host: app.example.com
     http:
@@ -388,20 +910,26 @@ spec:
             port:
               number: 80
 ```
-Use cert-manager for automatic Let's Encrypt certificate management.
+
+Use **cert-manager** for automatic Let's Encrypt certificate management.
+
+---
 
 **18. Ingress annotations? 5 examples.**
+
 ```yaml
 annotations:
   nginx.ingress.kubernetes.io/rewrite-target: /              # URL rewriting
   nginx.ingress.kubernetes.io/ssl-redirect: "true"           # Force HTTPS
-  nginx.ingress.kubernetes.io/proxy-body-size: "50m"         # Max upload size
+  nginx.ingress.kubernetes.io/proxy-body-size: "50m"         # Max upload
   nginx.ingress.kubernetes.io/rate-limit: "10"               # Rate limiting
-  nginx.ingress.kubernetes.io/auth-type: basic               # Basic auth
   cert-manager.io/cluster-issuer: letsencrypt-prod           # Auto TLS
 ```
 
-**19. Complete Ingress with TLS and 2 paths:**
+---
+
+**19. Ingress with TLS and 2 paths:**
+
 ```yaml
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -432,14 +960,41 @@ spec:
               number: 80
 ```
 
+---
+
 **20. Ingress vs Gateway API?**
-Ingress: Older, simpler, L7 HTTP only. Gateway API: Newer, richer, supports L4+L7, better RBAC (infra team manages Gateway, dev teams manage HTTPRoutes), more expressive routing.
 
-**21-24.** (DNS covered above)
+| Aspect | Ingress | Gateway API |
+|--------|---------|-------------|
+| Age | Older, stable | Newer, GA since K8s 1.27 |
+| Layer | L7 HTTP only | L4 (TCP/UDP) + L7 |
+| RBAC | Single resource | Split: Gateway (infra) + Route (dev) |
+| Features | Basic | Traffic splitting, header matching, mirrors |
+| Status | Maintenance mode | Active development |
 
-**25-27.** (NetworkPolicy covered above)
+---
+
+### NetworkPolicy
+
+**21-27. NetworkPolicy?**
+
+Firewall rules for pods. By default all pods can talk to all pods. NetworkPolicy restricts this.
+
+```
+Without NetworkPolicy:              With NetworkPolicy:
+┌────────────────────┐              ┌────────────────────┐
+│ All pods can       │              │ Frontend → API ✅  │
+│ talk to all pods   │              │ Frontend → DB  ❌  │
+│ (flat network)     │              │ API → DB       ✅  │
+│                    │              │ External → API ❌  │
+│ Security risk! ❌  │              │ Least privilege ✅  │
+└────────────────────┘              └────────────────────┘
+```
+
+---
 
 **28. Deny all ingress to a namespace:**
+
 ```yaml
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -447,44 +1002,86 @@ metadata:
   name: deny-all-ingress
   namespace: production
 spec:
-  podSelector: {}          # Applies to ALL pods
+  podSelector: {}          # ALL pods in namespace
   policyTypes:
   - Ingress
-  # No ingress rules = deny all incoming
+  # No ingress rules = deny ALL incoming traffic
 ```
 
+---
+
 **29. CNI plugins for NetworkPolicy?**
-Calico (most popular), Cilium (eBPF-based, advanced), Weave Net. Note: Flannel does NOT support NetworkPolicies.
 
-**30. User can't reach app. Pod running, Service exists. Debug?**
-1. `kubectl get endpoints <svc>` → are pod IPs listed? If empty → selector mismatch
-2. `kubectl describe svc <svc>` → check selector vs `kubectl get pods --show-labels`
-3. `kubectl exec <test-pod> -- curl <svc>:<port>` → test from inside cluster
-4. Check pod's readiness probe → if failing, pod removed from endpoints
-5. Check NetworkPolicy → might be blocking traffic
-6. Check Ingress config → wrong path or host
+| Plugin | NetworkPolicy | Technology | Notes |
+|--------|---------------|-----------|-------|
+| Calico | ✅ | iptables/eBPF | Most popular |
+| Cilium | ✅ | eBPF | Advanced, fastest |
+| Weave Net | ✅ | iptables | Simple |
+| Flannel | ❌ | VXLAN | No NetworkPolicy! |
 
-**31. Expose service to internet (AKS/EKS)?**
-Option 1: `type: LoadBalancer` Service → cloud auto-provisions public LB
-Option 2: Ingress Controller (Nginx) + `type: LoadBalancer` for the controller → Ingress rules route to services
+---
 
-**32. L4 vs L7 load balancing?**
-- **L4 (Transport)**: Routes based on IP + port. TCP/UDP level. Faster. Service type LoadBalancer.
-- **L7 (Application)**: Routes based on HTTP headers, path, host. More intelligent. Ingress.
+**30. Debug: user can't reach app, pod running, Service exists?**
 
-**33. Inter-service communication?**
-Services communicate via DNS: `http://service-name.namespace.svc.cluster.local:port`. For complex needs: service mesh (Istio) adds retries, circuit breaking, mTLS, traffic splitting.
+```
+Debugging Flow:
+┌────────────────────────────────────────────────────────┐
+│ 1. kubectl get endpoints <svc>                         │
+│    Empty? → Label selector mismatch!                   │
+│    Check: pod labels vs service selector               │
+├────────────────────────────────────────────────────────┤
+│ 2. kubectl describe svc <svc>                          │
+│    Check Selector field                                │
+│    kubectl get pods --show-labels                      │
+├────────────────────────────────────────────────────────┤
+│ 3. Test from inside cluster:                           │
+│    kubectl exec <test-pod> -- curl <svc>:<port>        │
+├────────────────────────────────────────────────────────┤
+│ 4. Check readiness probe — failing?                    │
+│    Pod not ready = removed from endpoints              │
+├────────────────────────────────────────────────────────┤
+│ 5. Check NetworkPolicy — blocking traffic?             │
+├────────────────────────────────────────────────────────┤
+│ 6. Check Ingress — wrong host/path?                    │
+└────────────────────────────────────────────────────────┘
+```
 
-**34. Service mesh?**
-Dedicated infrastructure layer for service-to-service communication. Adds: mTLS (encrypted traffic), retries, circuit breaking, traffic splitting, observability. Tools: Istio (most popular), Linkerd (lighter). Use when: many microservices, need fine-grained traffic control.
+---
+
+**31-34. (Service mesh, L4/L7, inter-service)**
+
+**Service mesh**: Dedicated infrastructure for service-to-service communication. Adds: mTLS, retries, circuit breaking, traffic splitting, observability. Tools: Istio, Linkerd.
+
+**L4 vs L7**: L4 = routes by IP:port (fast, Service LoadBalancer). L7 = routes by HTTP path/headers/cookies (smart, Ingress).
 
 ---
 
 ## CONFIG, STORAGE, SECURITY, HELM (65 Qs)
 
-**1-2.** (ConfigMap basics covered)
+### ConfigMap & Secrets
+
+**1-2. ConfigMap?**
+
+Non-confidential configuration data as key-value pairs.
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+data:
+  DB_HOST: "postgres.prod.svc"
+  LOG_LEVEL: "info"
+  config.yaml: |
+    server:
+      port: 8080
+      timeout: 30s
+```
+
+---
 
 **3. ConfigMap as volume?**
+
 ```yaml
 spec:
   containers:
@@ -496,12 +1093,13 @@ spec:
   - name: config-volume
     configMap:
       name: myapp-config
-# Each key in ConfigMap becomes a file in /etc/config/
+# Each key becomes a file: /etc/config/DB_HOST, /etc/config/LOG_LEVEL
 ```
 
-**4-5.** (Secret basics covered)
+---
 
-**6. Create Secret from literal/file?**
+**4-6. Secrets?**
+
 ```bash
 # From literal
 kubectl create secret generic db-secret --from-literal=password=mysecret
@@ -509,7 +1107,7 @@ kubectl create secret generic db-secret --from-literal=password=mysecret
 # From file
 kubectl create secret generic tls-secret --from-file=tls.crt --from-file=tls.key
 
-# Declarative
+# Declarative (base64 encoded — NOT encrypted!)
 apiVersion: v1
 kind: Secret
 metadata:
@@ -519,20 +1117,43 @@ data:
   password: bXlzZWNyZXQ=    # echo -n "mysecret" | base64
 ```
 
+```
+⚠️ K8s Secrets are base64 encoded, NOT encrypted!
+   Anyone with API access can decode them.
+   For real security: use external secret managers
+   (Vault, Azure Key Vault, AWS Secrets Manager)
+```
+
+---
+
 **7. Secret types?**
-- `Opaque`: Default, arbitrary key-value data
-- `kubernetes.io/dockerconfigjson`: Registry credentials (`imagePullSecrets`)
-- `kubernetes.io/tls`: TLS certificate + key
-- `kubernetes.io/basic-auth`: Username + password
-- `kubernetes.io/service-account-token`: Auto-generated SA token
 
-**8. External secret managers?**
-Mount secrets from Vault/Key Vault into K8s Secrets:
-- **CSI Secrets Store Driver**: Mounts Vault secrets as volumes
-- **External Secrets Operator**: Syncs external secrets → K8s Secrets
-- **Vault Agent Injector**: Sidecar that injects secrets from Vault
+| Type | Purpose |
+|------|---------|
+| `Opaque` | Default — arbitrary key-value data |
+| `kubernetes.io/dockerconfigjson` | Registry credentials (imagePullSecrets) |
+| `kubernetes.io/tls` | TLS certificate + key |
+| `kubernetes.io/basic-auth` | Username + password |
+| `kubernetes.io/service-account-token` | Auto-generated SA token |
 
-**9. External Secrets Operator?**
+---
+
+**8-9. External secret managers?**
+
+```
+┌─── External Secrets Operator ────────────────────────────┐
+│                                                           │
+│  Azure Key Vault ──► ExternalSecret CR ──► K8s Secret    │
+│  AWS Secrets Mgr                                          │
+│  HashiCorp Vault     Syncs periodically (refreshInterval)│
+│                                                           │
+│  Tools:                                                   │
+│  - External Secrets Operator (recommended)               │
+│  - CSI Secrets Store Driver (mount as volume)            │
+│  - Vault Agent Injector (sidecar)                        │
+└───────────────────────────────────────────────────────────┘
+```
+
 ```yaml
 apiVersion: external-secrets.io/v1beta1
 kind: ExternalSecret
@@ -551,57 +1172,88 @@ spec:
       key: production-db-password
 ```
 
-**10. ConfigMap as env vars in Deployment:**
-```yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: app-config
-data:
-  DB_HOST: "postgres.prod.svc"
-  LOG_LEVEL: "info"
 ---
+
+**10. ConfigMap as env vars in Deployment:**
+
+```yaml
 spec:
   containers:
   - name: app
-    envFrom:
+    envFrom:                           # ALL keys as env vars
     - configMapRef:
         name: app-config
-    # OR individual keys:
-    env:
+    env:                               # Individual keys
     - name: DB_HOST
       valueFrom:
         configMapKeyRef:
           name: app-config
           key: DB_HOST
+    - name: DB_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: db-secret
+          key: password
 ```
 
-**11.** (PV/PVC covered)
+---
 
-**12. Access modes?**
-- `ReadWriteOnce (RWO)`: One node can mount read-write (most common)
-- `ReadOnlyMany (ROX)`: Many nodes can mount read-only
-- `ReadWriteMany (RWX)`: Many nodes can mount read-write (NFS, Azure Files)
+### Storage
 
-**13.** (StorageClass covered)
+**11-12. PV, PVC, Access Modes?**
 
-**14. Reclaim policies?**
-- `Retain`: PV preserved after PVC deletion (manual cleanup required)
-- `Delete`: PV and underlying storage deleted when PVC deleted (default for dynamic)
-- `Recycle`: Deprecated. Basic scrub (rm -rf) then reuse.
-
-**15. emptyDir volume?**
-Temporary storage created when pod is assigned to node. Deleted when pod removed. Useful for: scratch space, sharing files between containers in same pod, caching.
-```yaml
-volumes:
-- name: cache
-  emptyDir: {}
+```
+┌─── Storage Architecture ──────────────────────────────────────┐
+│                                                                │
+│  StorageClass ──► defines HOW to provision                    │
+│       │                                                        │
+│  PersistentVolumeClaim (PVC) ──► requests storage             │
+│       │                                                        │
+│  PersistentVolume (PV) ──► actual storage (auto-provisioned)  │
+│       │                                                        │
+│  Cloud Disk / NFS / local ──► physical storage                │
+└────────────────────────────────────────────────────────────────┘
 ```
 
-**16. hostPath?**
-Mounts a directory from the host node. Not recommended because: pod is tied to specific node, security risk (access to host filesystem), data not portable. Use only for: DaemonSets accessing node logs/metrics.
+| Access Mode | Short | Meaning |
+|-------------|-------|---------|
+| ReadWriteOnce | RWO | One node mounts read-write (most common) |
+| ReadOnlyMany | ROX | Many nodes mount read-only |
+| ReadWriteMany | RWX | Many nodes mount read-write (NFS, Azure Files) |
+
+---
+
+**13-14. StorageClass & Reclaim Policy?**
+
+| Reclaim Policy | Behavior |
+|----------------|----------|
+| `Delete` | PV + cloud disk deleted when PVC deleted (default for dynamic) |
+| `Retain` | PV preserved — manual cleanup required |
+
+---
+
+**15-16. emptyDir & hostPath?**
+
+```
+emptyDir:                           hostPath:
+┌──────────────────────┐           ┌──────────────────────┐
+│ Created with pod     │           │ Mounts host dir      │
+│ Deleted with pod     │           │ into container       │
+│ Temp storage         │           │                      │
+│                      │           │ Risks:               │
+│ Use: scratch space,  │           │ - Tied to node       │
+│ share between        │           │ - Security risk      │
+│ containers in pod    │           │ - Not portable       │
+│                      │           │                      │
+│ Good ✅              │           │ Avoid ❌             │
+│                      │           │ (DaemonSets only)    │
+└──────────────────────┘           └──────────────────────┘
+```
+
+---
 
 **17. PVC in Deployment:**
+
 ```yaml
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -614,7 +1266,6 @@ spec:
     requests:
       storage: 10Gi
 ---
-# In Deployment spec:
 spec:
   containers:
   - name: app
@@ -627,54 +1278,51 @@ spec:
       claimName: app-data
 ```
 
-**18-20.** (Probes covered)
+---
 
-**21. Probe mechanisms?**
-```yaml
-# HTTP GET
-livenessProbe:
-  httpGet:
-    path: /healthz
-    port: 8080
+### Probes
 
-# TCP Socket
-livenessProbe:
-  tcpSocket:
-    port: 3306
+**18-24. Liveness, Readiness, Startup Probes?**
 
-# Exec command
-livenessProbe:
-  exec:
-    command: ["pg_isready", "-U", "postgres"]
+```
+┌─── Startup Probe ────────────────────────────────────────────┐
+│ "Has the app finished starting up?"                          │
+│ Runs first. Until it passes, liveness/readiness don't start. │
+│ Use for: slow-starting apps (Java, legacy apps)              │
+│ Failure → kill and restart container                         │
+└──────────────────────────────────────────────────────────────┘
+
+┌─── Liveness Probe ───────────────────────────────────────────┐
+│ "Is the app alive (not deadlocked/hung)?"                    │
+│ Failure → kubelet RESTARTS the container                     │
+│ Use for: detect deadlocks, hung processes                    │
+│ If you're not sure → DON'T add liveness probe               │
+└──────────────────────────────────────────────────────────────┘
+
+┌─── Readiness Probe ──────────────────────────────────────────┐
+│ "Is the app ready to receive traffic?"                       │
+│ Failure → pod removed from Service endpoints (no traffic)    │
+│ Use for: warming cache, loading data, dependency checks      │
+│ ALWAYS add readiness probe                                   │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-**22. Probe parameters?**
 ```yaml
-livenessProbe:
-  httpGet:
-    path: /healthz
-    port: 8080
-  initialDelaySeconds: 15    # Wait before first probe
-  periodSeconds: 10          # Probe every 10s
-  timeoutSeconds: 5          # Timeout per probe
-  failureThreshold: 3        # Fail after 3 consecutive failures
-  successThreshold: 1        # Succeed after 1 success
-```
-
-**23. All 3 probes for HTTP app:**
-```yaml
+# All 3 probes for an HTTP app:
 startupProbe:
   httpGet:
     path: /healthz
     port: 8080
   failureThreshold: 30
-  periodSeconds: 10          # Allow up to 300s to start
+  periodSeconds: 10            # Allow up to 300s to start
+
 livenessProbe:
   httpGet:
     path: /healthz
     port: 8080
   periodSeconds: 10
   failureThreshold: 3
+
 readinessProbe:
   httpGet:
     path: /ready
@@ -683,73 +1331,71 @@ readinessProbe:
   failureThreshold: 3
 ```
 
-**24.** (Startup probe covered)
+Probe mechanisms: `httpGet`, `tcpSocket`, `exec`.
 
-**25-26.** (Resources covered)
-
-**27. QoS classes?**
-- **Guaranteed**: requests == limits for all containers. Highest priority, last to be evicted.
-- **Burstable**: requests < limits (or only requests set). Medium priority.
-- **BestEffort**: No requests or limits set. First to be evicted. **Never use in production.**
-
-**28. LimitRange and ResourceQuota?**
-```yaml
-# LimitRange: Default per-container limits in a namespace
-apiVersion: v1
-kind: LimitRange
-metadata:
-  name: default-limits
-spec:
-  limits:
-  - default:
-      cpu: 500m
-      memory: 512Mi
-    defaultRequest:
-      cpu: 100m
-      memory: 128Mi
-    type: Container
 ---
-# ResourceQuota: Total namespace limits
-apiVersion: v1
-kind: ResourceQuota
-metadata:
-  name: namespace-quota
-spec:
-  hard:
-    requests.cpu: "10"
-    requests.memory: 20Gi
-    limits.cpu: "20"
-    pods: "50"
+
+### Resources & QoS
+
+**25-28. Resource requests/limits, QoS classes?**
+
+```
+┌─── Resource Model ───────────────────────────────────────────┐
+│                                                               │
+│  requests: GUARANTEED minimum                                │
+│    Scheduler uses this to place pods                         │
+│    "My app needs at least this much"                         │
+│                                                               │
+│  limits: MAXIMUM cap                                         │
+│    Container killed (OOMKill) if memory exceeds limit        │
+│    Container throttled if CPU exceeds limit                  │
+│                                                               │
+│  resources:                                                   │
+│    requests:                                                  │
+│      cpu: 100m        # 10% of a core                        │
+│      memory: 128Mi    # 128 MB guaranteed                    │
+│    limits:                                                    │
+│      cpu: 500m        # Max 50% of a core                    │
+│      memory: 512Mi    # OOMKilled if exceeds                 │
+└───────────────────────────────────────────────────────────────┘
 ```
 
-**29.** (Scheduler covered)
+| QoS Class | Condition | Eviction Priority |
+|-----------|-----------|-------------------|
+| **Guaranteed** | requests = limits (all containers) | Last (highest priority) |
+| **Burstable** | requests < limits | Medium |
+| **BestEffort** | No requests or limits | First (lowest — never use in prod!) |
 
-**30-32.** (RBAC covered)
+---
 
-**33. ServiceAccount?**
-Identity for pods to authenticate to the API server. Default SA has minimal permissions. Create custom SAs with specific RBAC roles for each workload.
-```yaml
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: app-sa
-automountServiceAccountToken: false  # Don't auto-mount if not needed
+### Security
+
+**29-38. RBAC, ServiceAccount, Pod Security?**
+
+```
+┌─── RBAC Model ───────────────────────────────────────────────┐
+│                                                               │
+│  Subject ──► RoleBinding ──► Role ──► API Resources          │
+│  (User/SA)                   (verbs)  (pods, secrets, etc.)  │
+│                                                               │
+│  Namespace-scoped:                                            │
+│    Role + RoleBinding                                        │
+│                                                               │
+│  Cluster-scoped:                                              │
+│    ClusterRole + ClusterRoleBinding                          │
+│                                                               │
+│  Verbs: get, list, watch, create, update, patch, delete      │
+└───────────────────────────────────────────────────────────────┘
 ```
 
-**34. Restrict Pod API access?**
-```yaml
-# Don't mount service account token
-automountServiceAccountToken: false
+**Pod Security Admission** (replaces deprecated PodSecurityPolicy):
 
-# Or use RBAC to give SA minimal permissions
-# (Don't bind cluster-admin to workload SAs!)
-```
+| Level | Restrictions |
+|-------|-------------|
+| Privileged | None — anything goes |
+| Baseline | Prevents known privilege escalations |
+| Restricted | Best practices — non-root, drop caps, read-only |
 
-**35. Pod Security Admission?**
-Replaces deprecated PodSecurityPolicy. Enforces security standards per namespace:
-- **Privileged**: No restrictions
-- **Baseline**: Prevents known privilege escalations
-- **Restricted**: Heavily restricted, best practices
 ```yaml
 apiVersion: v1
 kind: Namespace
@@ -759,14 +1405,8 @@ metadata:
     pod-security.kubernetes.io/enforce: restricted
 ```
 
-**36. Least privilege in K8s?**
-- Namespace-scoped Roles (not ClusterRoles) where possible
-- Per-workload ServiceAccounts (not default SA)
-- Minimal RBAC verbs (get/list, not *)
-- NetworkPolicies to restrict communication
-- Security context: non-root, read-only filesystem, drop capabilities
+**Security context for a Pod:**
 
-**37. Run Pod as non-root?**
 ```yaml
 spec:
   securityContext:
@@ -778,59 +1418,62 @@ spec:
     securityContext:
       allowPrivilegeEscalation: false
       readOnlyRootFilesystem: true
+      capabilities:
+        drop: ["ALL"]
+      seccompProfile:
+        type: RuntimeDefault
 ```
 
-**38. securityContext with dropped capabilities:**
-```yaml
-securityContext:
-  runAsNonRoot: true
-  runAsUser: 1000
-  readOnlyRootFilesystem: true
-  allowPrivilegeEscalation: false
-  capabilities:
-    drop: ["ALL"]
-  seccompProfile:
-    type: RuntimeDefault
+---
+
+### Helm
+
+**39-48. Helm?**
+
+Package manager for K8s. A **chart** = bundle of K8s manifests + configuration.
+
+```
+┌─── Helm Concepts ────────────────────────────────────────────┐
+│                                                               │
+│  Chart:     Package of K8s templates + values                │
+│  Release:   Installed instance of a chart                    │
+│  Repository: Where charts are stored                         │
+│  values.yaml: Configuration defaults (override at install)   │
+└───────────────────────────────────────────────────────────────┘
 ```
 
-**39.** (Helm basics covered)
+**Chart structure:**
 
-**40. Helm chart directory structure?**
 ```
 mychart/
-├── Chart.yaml          # Metadata (name, version, appVersion)
-├── values.yaml         # Default configuration values
+├── Chart.yaml          # Metadata (name, version)
+├── values.yaml         # Default config values
 ├── charts/             # Sub-chart dependencies
 ├── templates/
-│   ├── deployment.yaml # K8s manifests with Go templates
+│   ├── deployment.yaml # Go-templated manifests
 │   ├── service.yaml
 │   ├── ingress.yaml
-│   ├── configmap.yaml
-│   ├── _helpers.tpl    # Template helpers (named templates)
-│   ├── NOTES.txt       # Post-install instructions
+│   ├── _helpers.tpl    # Reusable template functions
+│   ├── NOTES.txt       # Post-install message
 │   └── tests/
-│       └── test-connection.yaml
-└── .helmignore         # Files to exclude from package
+└── .helmignore
 ```
 
-**41. values.yaml? Override?**
-Default configuration. Override with:
+**Key commands:**
+
 ```bash
-helm install myapp ./chart -f custom-values.yaml
-helm install myapp ./chart --set replicas=5
-helm install myapp ./chart --set image.tag=v2.0
+helm install myapp ./chart -f prod-values.yaml   # Install
+helm upgrade myapp ./chart -f prod-values.yaml    # Upgrade
+helm rollback myapp 2                              # Rollback to rev 2
+helm uninstall myapp                               # Remove
+helm list                                          # List releases
+helm history myapp                                 # Revision history
+helm template myapp ./chart                        # Render locally (debug)
+helm lint ./chart                                  # Validate chart
 ```
 
-**42. Helm release?**
-A specific installation of a chart. Has a name, revision history, and can be upgraded/rolled back.
-```bash
-helm list                    # List releases
-helm history myapp           # Show revisions
-```
+**Templating:**
 
-**43.** (Helm commands covered)
-
-**44. Helm templating?**
 ```yaml
 # templates/deployment.yaml
 apiVersion: apps/v1
@@ -850,77 +1493,70 @@ spec:
         {{- end }}
 ```
 
-**45. Helm repository?**
-```bash
-helm repo add bitnami https://charts.bitnami.com/bitnami
-helm repo update
-helm search repo nginx
-```
+`helm template` vs `helm install`: template renders YAML locally (no cluster). install renders AND applies to cluster.
 
-**46. Create custom Helm chart?**
-```bash
-helm create mychart           # Scaffold chart
-# Edit templates/ and values.yaml
-helm lint mychart             # Validate
-helm template mychart         # Render locally
-helm package mychart          # Create .tgz
-helm install myrelease ./mychart  # Install
-```
-
-**47. helm template vs helm install?**
-- `helm template`: Renders templates locally, outputs YAML. No cluster interaction. Good for debugging.
-- `helm install`: Renders AND applies to cluster. Creates a release.
-
-**48. Helmfile?**
-Declarative spec for deploying multiple Helm charts:
-```yaml
-releases:
-- name: prometheus
-  chart: prometheus-community/kube-prometheus-stack
-  values: [prometheus-values.yaml]
-- name: myapp
-  chart: ./charts/myapp
-  values: [values/prod.yaml]
-```
-Run `helmfile apply` to deploy all.
+---
 
 ### Troubleshooting
 
-**49-53.** (Already covered above in detail)
+**49-58. Debugging K8s issues:**
 
-**54. Node NotReady?**
-1. `kubectl describe node <node>` → check Conditions
-2. Check kubelet: `systemctl status kubelet` on the node
-3. Check container runtime: `systemctl status containerd`
-4. Check disk space: `df -h`
-5. Check memory: OOM killer? `dmesg | grep -i oom`
-6. Check network: can node reach API server?
-
-**55.** (kubectl top covered)
-
-**56. Check events?**
-```bash
-kubectl get events -n <namespace> --sort-by=.lastTimestamp
-kubectl get events --field-selector type=Warning
+```
+┌─── K8s Troubleshooting Toolkit ──────────────────────────────┐
+│                                                               │
+│  Pod Issues:                                                  │
+│  kubectl get pods -o wide          # Status, node, restarts  │
+│  kubectl describe pod <pod>        # Events (WHY it failed)  │
+│  kubectl logs <pod> --previous     # Previous crash logs     │
+│  kubectl exec -it <pod> -- sh     # Debug inside container  │
+│                                                               │
+│  Node Issues:                                                 │
+│  kubectl describe node <node>      # Conditions, capacity    │
+│  kubectl top nodes                  # Resource usage          │
+│  systemctl status kubelet          # On the node itself      │
+│                                                               │
+│  Network Issues:                                              │
+│  kubectl get endpoints <svc>       # Pod IPs in service      │
+│  kubectl get svc,ingress           # Service config           │
+│  kubectl exec -- curl <svc>:port  # Test from inside cluster│
+│                                                               │
+│  Events:                                                      │
+│  kubectl get events --sort-by=.lastTimestamp                  │
+│  kubectl get events --field-selector type=Warning             │
+└───────────────────────────────────────────────────────────────┘
 ```
 
-**57. Drain node for maintenance?**
+**Node NotReady?**
+
+```
+1. kubectl describe node <node>      → check Conditions
+2. SSH to node:
+   systemctl status kubelet          → is it running?
+   systemctl status containerd       → container runtime OK?
+   df -h                             → disk full?
+   free -m                           → memory pressure?
+   dmesg | grep -i oom               → OOM killer?
+3. Can node reach API server?        → network issue?
+```
+
+**Drain node for maintenance:**
+
 ```bash
 kubectl drain <node> --ignore-daemonsets --delete-emptydir-data
 # Evicts all pods (respects PDB), marks node unschedulable
 # After maintenance:
 kubectl uncordon <node>
+
+# Just prevent new scheduling (don't evict):
+kubectl cordon <node>
 ```
 
-**58. Cordon/uncordon?**
-```bash
-kubectl cordon <node>    # Mark unschedulable (no new pods, existing stay)
-kubectl uncordon <node>  # Mark schedulable again
-```
+---
 
 ### Interview-Style Manifests
 
 **59. Complete set: Deployment + Service + ConfigMap + Secret + Ingress:**
+
 ```yaml
 apiVersion: v1
 kind: ConfigMap
@@ -1004,7 +1640,10 @@ spec:
           service: {name: webapp-svc, port: {number: 80}}
 ```
 
+---
+
 **60. StatefulSet for PostgreSQL:**
+
 ```yaml
 apiVersion: apps/v1
 kind: StatefulSet
@@ -1046,7 +1685,10 @@ spec:
           storage: 20Gi
 ```
 
+---
+
 **61. CronJob for daily cleanup:**
+
 ```yaml
 apiVersion: batch/v1
 kind: CronJob
@@ -1067,7 +1709,10 @@ spec:
           restartPolicy: OnFailure
 ```
 
+---
+
 **62. DaemonSet for log collector:**
+
 ```yaml
 apiVersion: apps/v1
 kind: DaemonSet
@@ -1095,7 +1740,10 @@ spec:
           path: /var/log
 ```
 
-**63. RBAC - dev read-only Pods+logs in "dev" namespace:**
+---
+
+**63. RBAC — dev read-only in "dev" namespace:**
+
 ```yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -1121,16 +1769,21 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
 ```
 
+---
+
 **64. Organizing manifests for 15 microservices?**
-Option 1: Helm chart per service with shared library chart. Option 2: Kustomize with base + overlays per env. Structure:
+
 ```
+Option A: Helm chart per service + shared library chart
+Option B: Kustomize with base + overlays per environment
+
 k8s/
 ├── base/                     # Shared templates
 ├── services/
 │   ├── api-gateway/
 │   │   ├── deployment.yaml
 │   │   ├── service.yaml
-│   │   └── values-{env}.yaml
+│   │   └── kustomization.yaml
 │   ├── user-service/
 │   └── order-service/
 └── overlays/
@@ -1139,10 +1792,31 @@ k8s/
     └── prod/
 ```
 
+---
+
 **65. GitOps with ArgoCD?**
-1. All K8s manifests in Git repo (source of truth)
-2. ArgoCD watches Git repo for changes
-3. Developer submits PR → review → merge
-4. ArgoCD detects change → syncs cluster to match Git
-5. ArgoCD UI shows sync status, diff, health
-6. Rollback = git revert → ArgoCD auto-syncs
+
+```
+Developer ──► Git Push ──► PR Review ──► Merge
+                                           │
+                                    ┌──────▼──────┐
+                                    │ ArgoCD      │
+                                    │ watches Git │
+                                    │ repo        │
+                                    └──────┬──────┘
+                                           │
+                                    ┌──────▼──────┐
+                                    │ Detects     │
+                                    │ difference  │
+                                    │ (drift)     │
+                                    └──────┬──────┘
+                                           │
+                                    ┌──────▼──────┐
+                                    │ Syncs       │
+                                    │ cluster to  │
+                                    │ match Git   │
+                                    └─────────────┘
+
+Rollback = git revert → ArgoCD auto-syncs
+Git = single source of truth
+```

@@ -8,6 +8,31 @@
 
 ## File & Directory Operations
 
+```
+Linux Filesystem Hierarchy (FHS):
+
+  /
+  ├── bin/        ← Essential user commands (ls, cp, cat)
+  ├── sbin/       ← System admin commands (fdisk, iptables)
+  ├── etc/        ← Configuration files (nginx.conf, passwd)
+  ├── home/       ← User home directories
+  │   └── vaibhav/
+  ├── var/        ← Variable data (logs, caches, spool)
+  │   ├── log/    ← System + app logs
+  │   └── lib/    ← State data (databases, packages)
+  ├── tmp/        ← Temporary files (cleared on reboot)
+  ├── usr/        ← User programs + libraries
+  │   ├── bin/    ← Non-essential commands
+  │   ├── lib/    ← Libraries
+  │   └── share/  ← Shared data (man pages, docs)
+  ├── opt/        ← Optional/third-party software
+  ├── dev/        ← Device files (/dev/sda, /dev/null)
+  ├── proc/       ← Virtual FS: running processes + kernel info
+  ├── sys/        ← Virtual FS: hardware/kernel parameters
+  ├── boot/       ← Bootloader, kernel (vmlinuz)
+  └── root/       ← Root user's home directory
+```
+
 **1. List all files including hidden ones?**
 ```bash
 ls -a          # includes . and ..
@@ -67,6 +92,21 @@ rmdir emptydir/                      # Only works if empty
 ```
 
 **8. Hard link vs soft (symbolic) link?**
+
+```
+Hard Link:                           Soft Link (Symlink):
+┌────────────────────────┐       ┌────────────────────────┐
+│ file.txt ───┐              │       │ symlink ───┐               │
+│ hardlink ───┤ inode 1234  │       │              ▼               │
+│              │ (same!)    │       │         file.txt ─── inode  │
+│              ▼            │       │         (different inodes)   │
+│         [data blocks]    │       │                              │
+│                          │       │ Delete file.txt:             │
+│ Delete file.txt:         │       │   symlink = BROKEN! ❌       │
+│   hardlink still works!  │       │                              │
+└────────────────────────┘       └────────────────────────┘
+```
+
 | Hard Link | Soft Link (Symlink) |
 |---|---|
 | Same inode number | Different inode |
@@ -347,6 +387,26 @@ sed '/section/s/old/new/g' file.txt    # Lines matching "section"
 
 ## Piping & Redirection
 
+```
+I/O Streams and Redirection:
+
+  stdin (0)     ┌───────────┐     stdout (1)  → screen / file / pipe
+  keyboard ──▶ │  Command  │ ──▶
+  file     ──▶ │           │ ──▶ stderr (2)  → screen / file
+  pipe     ──▶ └───────────┘
+
+  >   redirect stdout (overwrite)      2>  redirect stderr
+  >>  redirect stdout (append)         2>> redirect stderr (append)
+  <   redirect stdin from file         &>  redirect both stdout+stderr
+  |   pipe stdout to next command      2>&1 merge stderr into stdout
+
+  Pipeline:
+  cat log | grep ERROR | awk '{print $4}' | sort | uniq -c | sort -rn
+  │          │            │                │         │         │
+  read      filter       extract          sort     count     sort by
+  file      errors       column 4         alpha    dupes     count
+```
+
 **47. What is a pipe? How does it work?**
 `|` sends stdout of one command as stdin to the next command. Creates a pipeline.
 ```bash
@@ -423,12 +483,26 @@ awk '{print $1}' access.log | sort | uniq -c | sort -rn | head -20
 ## Permissions
 
 **56. What does `chmod 755` mean?**
+
 ```
-7 = rwx (owner: read+write+execute = 4+2+1)
-5 = r-x (group: read+execute = 4+0+1)
-5 = r-x (others: read+execute = 4+0+1)
+Permission bits: rwxr-xr-x
+
+  Owner (u)     Group (g)     Others (o)
+  ┌────────┐    ┌────────┐    ┌────────┐
+  │ r  w  x  │    │ r  -  x  │    │ r  -  x  │
+  │ 4+ 2+ 1  │    │ 4+ 0+ 1  │    │ 4+ 0+ 1  │
+  │  = 7     │    │  = 5     │    │  = 5     │
+  └────────┘    └────────┘    └────────┘
+
+  r = read (4)   w = write (2)   x = execute (1)
+
+Common permissions:
+  755 = rwxr-xr-x  (executables, directories)
+  644 = rw-r--r--  (regular files)
+  600 = rw-------  (private files, SSH keys)
+  700 = rwx------  (private directories)
+  777 = rwxrwxrwx  (NEVER use! ❌)
 ```
-Common values: 755 (executables/directories), 644 (regular files), 600 (private files), 700 (private directories)
 
 **57. `chmod` vs `chown`?**
 - `chmod`: Changes **permissions** (who can read/write/execute)
@@ -543,6 +617,19 @@ grep -rl "old_value" /etc/app/ | xargs sed -i 's/old_value/new_value/g'
 ## Process Management
 
 **1. What is a process? What is a thread?**
+
+```
+Process:                            Thread:
+┌────────────────────────┐      ┌────────────────────────┐
+│ Own memory space        │      │ Process                  │
+│ Own PID                 │      │ ┌───────┐ ┌───────┐      │
+│ Own file descriptors    │      │ │Thread1│ │Thread2│      │
+│ Isolated from others    │      │ └───────┘ └───────┘      │
+│ Expensive to create     │      │ SHARED memory             │
+│ ~1MB+ overhead          │      │ Lightweight (~KB)         │
+└────────────────────────┘      └────────────────────────┘
+```
+
 - **Process**: Running instance of a program. Has its own memory space, PID, file descriptors.
 - **Thread**: Lightweight unit within a process. Shares memory with other threads in same process. Cheaper to create.
 

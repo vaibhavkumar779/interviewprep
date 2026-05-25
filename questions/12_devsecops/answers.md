@@ -11,12 +11,26 @@ DevSecOps = DevOps + Security at every stage. Instead of security being a final 
 Move security checks earlier in the development lifecycle. Instead of finding vulnerabilities in production, find them during coding/building. Earlier = cheaper to fix.
 
 **3. Security pipeline? Where do checks fit?**
+
 ```
-Code → [SAST, Secret scan, Linting] →
-Build → [SCA, Dependency scan] →
-Package → [Container scan, Image signing] →
-Deploy → [IaC scan, Compliance check] →
-Runtime → [DAST, Monitoring, Pen testing]
+DevSecOps Pipeline Flow:
+
+  CODE            BUILD           PACKAGE         DEPLOY          RUNTIME
+  ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐
+  │ SAST       │   │ SCA        │   │ Container  │   │ IaC scan   │   │ DAST       │
+  │ Secret scan│─▶│ Dependency │─▶│ Image scan │─▶│ Compliance │─▶│ WAF/RASP   │
+  │ Linting    │   │ scan       │   │ Image sign │   │ check      │   │ Monitoring │
+  │ Pre-commit │   │ License    │   │ SBOM       │   │ Approval   │   │ Pen test   │
+  └──────────┘   └──────────┘   └──────────┘   └──────────┘   └──────────┘
+
+  Tools:       Tools:       Tools:         Tools:        Tools:
+  SonarQube    Snyk         Trivy          Checkov       OWASP ZAP
+  Semgrep      Dependabot   Cosign/Notary  tfsec         Falco
+  GitLeaks     npm audit    Grype          OPA/Rego      Tenable
+  CodeQL       OWASP DC     Syft (SBOM)    Sentinel      Datadog
+
+  ←──────── Shift Left (cheaper to fix) ───────────────────────────▶
+  $100 to fix                                        $10,000 to fix
 ```
 
 **4. OWASP Top 10? Name 5+.**
@@ -35,7 +49,32 @@ Runtime → [DAST, Monitoring, Pen testing]
 Grant only the minimum permissions needed for a task. Examples: read-only ServiceAccount for monitoring pods, specific RBAC roles per team, short-lived credentials.
 
 **6. Defense in depth?**
-Multiple layers of security controls. If one fails, others still protect. Layers: network (firewall) → host (OS hardening) → application (auth) → data (encryption).
+Multiple layers of security controls. If one fails, others still protect.
+
+```
+Defense in Depth Layers:
+
+  ┌─────────────────────────────────────────────┐
+  │  Physical Security (data centers, locks)     │
+  │  ┌───────────────────────────────────────┐  │
+  │  │  Network (firewall, WAF, NSG, NACLs)      │  │
+  │  │  ┌─────────────────────────────────┐  │  │
+  │  │  │  Host (OS hardening, patching)        │  │  │
+  │  │  │  ┌───────────────────────────┐  │  │  │
+  │  │  │  │  Application (auth, input val) │  │  │  │
+  │  │  │  │  ┌─────────────────────┐  │  │  │  │
+  │  │  │  │  │  Data (encryption,    │  │  │  │  │
+  │  │  │  │  │  access control)     │  │  │  │  │
+  │  │  │  │  └─────────────────────┘  │  │  │  │
+  │  │  │  └───────────────────────────┘  │  │  │
+  │  │  └─────────────────────────────────┘  │  │
+  │  └───────────────────────────────────────┘  │
+  └─────────────────────────────────────────────┘
+
+Breaching one layer ≠ full compromise
+```
+
+Layers: network (firewall) → host (OS hardening) → application (auth) → data (encryption).
 
 **7. Zero trust security?**
 "Never trust, always verify." Every request is authenticated and authorized regardless of location. No implicit trust for internal networks. Verify identity, device, and context for every access.
@@ -307,7 +346,23 @@ K8s add-on that automates TLS certificate management. Integrates with Let's Encr
 ## Supply Chain Security
 
 **46. Supply chain security?**
-Securing the entire software delivery pipeline: source code → build → package → deploy. Prevent: compromised dependencies, tampered builds, malicious packages.
+Securing the entire software delivery pipeline: source code → build → package → deploy.
+
+```
+Supply Chain Attack Surface:
+
+  Developer          Source Code         Build System         Registry          Runtime
+  ┌─────────┐      ┌─────────┐      ┌─────────┐      ┌─────────┐    ┌─────────┐
+  │ Malicious │      │ Tampered │      │ Hijacked │      │ Poisoned │    │ Exploit  │
+  │ insider   │──▶  │ deps     │──▶  │ CI/CD    │──▶  │ images   │─▶ │ in prod  │
+  └─────────┘      └─────────┘      └─────────┘      └─────────┘    └─────────┘
+  Protection: Protection:      Protection:      Protection:   Protection:
+  MFA, GPG    Snyk/Dependabot  Signed builds    Cosign/Notary Runtime scan
+  signed      Lock files       Isolated agents  SBOM          Falco
+  commits     SBOM             Audit logs       Admission     Monitoring
+```
+
+Prevent: compromised dependencies, tampered builds, malicious packages.
 
 **47. SLSA?**
 Supply chain Levels for Software Artifacts — framework by Google. 4 levels of increasing security:

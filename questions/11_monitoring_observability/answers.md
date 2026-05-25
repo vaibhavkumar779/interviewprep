@@ -9,6 +9,30 @@
 - **Observability**: Understanding system behavior from external outputs. Debug unknown unknowns. "Why is it unhealthy?"
 
 **2. Three pillars of observability?**
+
+```
+┌───────────────────────────────────────────────────────────┐
+│                Three Pillars of Observability             │
+├───────────────────┬───────────────────┬───────────────────┤
+│    METRICS        │    LOGS           │    TRACES          │
+├───────────────────┼───────────────────┼───────────────────┤
+│ Numeric values    │ Text events       │ Request flow      │
+│ over time         │ with context      │ across services   │
+│                   │                   │                   │
+│ CPU: 85%          │ "Error: DB conn   │ Frontend 200ms   │
+│ Latency: 200ms    │  timeout at       │  └─Auth 50ms     │
+│ Errors/sec: 5     │  2024-01-15"      │    └─DB 150ms   │
+│                   │                   │                   │
+│ Best for:         │ Best for:         │ Best for:         │
+│  Alerting         │  Debugging        │  Cross-service    │
+│  Dashboards       │  Root cause       │  Latency analysis │
+│  Trending         │  Audit trails     │  Dependency map   │
+├───────────────────┼───────────────────┼───────────────────┤
+│ Prometheus        │ ELK/Loki         │ Jaeger/Tempo      │
+│ Datadog           │ Splunk           │ Zipkin            │
+└───────────────────┴───────────────────┴───────────────────┘
+```
+
 1. **Metrics**: Numerical measurements over time (CPU usage, request rate, error count)
 2. **Logs**: Discrete events with context (error messages, request details)
 3. **Traces**: Request flow across services (distributed tracing)
@@ -68,6 +92,33 @@ Open-source metrics monitoring system. Uses **pull model**: Prometheus scrapes H
 - **Push**: Applications push to Pushgateway (for short-lived jobs).
 
 **12. Prometheus architecture?**
+
+```
+Prometheus Architecture:
+┌────────────────────────────────────────────────────────┐
+│                  Prometheus Server                      │
+│  ┌────────────┐  ┌───────────┐  ┌────────────────┐  │
+│  │ Retrieval   │  │ TSDB       │  │ HTTP Server     │  │
+│  │ (scraping)  │─▶│ (storage)  │─▶│ (PromQL API)    │  │
+│  └────────────┘  └───────────┘  └────────────────┘  │
+│       │ scrape                          │                │
+└───────┼───────────────────────────────┼────────────────┘
+        │                               │
+  ┌─────┴────────┐                  ┌──┴───────────┐
+  │ Targets        │                  │ Grafana        │
+  │ ┌───────────┐ │                  │ (dashboards)   │
+  │ │node_export│ │                  └───────────────┘
+  │ │/metrics   │ │
+  │ └───────────┘ │   ┌───────────────┐
+  │ ┌───────────┐ │   │ Alertmanager  │──▶ PagerDuty/Slack/Email
+  │ │app /metrcs│ │   │ (routing,     │
+  │ └───────────┘ │   │  grouping,    │
+  │ ┌───────────┐ │   │  silencing)   │
+  │ │Pushgateway│─┘   └───────────────┘
+  │ │(push jobs)│
+  └─┴───────────┘
+```
+
 - **Prometheus Server**: Scrapes, stores, queries metrics
 - **Exporters**: Expose metrics from third-party systems (node_exporter, postgres_exporter)
 - **Alertmanager**: Handles alerts (routing, grouping, silencing)
@@ -254,7 +305,27 @@ Store JSON dashboard files in Git. Auto-loaded on Grafana start.
 ## Alerting
 
 **34. Alertmanager?**
-Handles alerts from Prometheus: deduplication, grouping, routing, silencing, inhibition. Sends notifications to: Slack, PagerDuty, email, webhooks.
+Handles alerts from Prometheus: deduplication, grouping, routing, silencing, inhibition.
+
+```
+Alerting Flow:
+
+  Prometheus                Alertmanager              Receivers
+  ┌─────────────┐        ┌───────────────┐     ┌─────────────┐
+  │ Alert rules  │──────▶│ Deduplicate   │     │ PagerDuty   │
+  │             │        │       │       │     │ (critical)  │
+  │ expr: ...   │        │   Group by    │     └─────────────┘
+  │ for: 5m     │        │   labels      │     ┌─────────────┐
+  │             │        │       │       │───▶│ Slack       │
+  └─────────────┘        │   Route by    │     │ (warning)   │
+                         │   severity    │     └─────────────┘
+                         │       │       │     ┌─────────────┐
+                         │   Silence?    │───▶│ Email       │
+                         │   Inhibit?    │     │ (info)      │
+                         └───────────────┘     └─────────────┘
+```
+
+Sends notifications to: Slack, PagerDuty, email, webhooks.
 
 **35. Alerting rule: CPU > 80% for 5 min?**
 ```yaml
@@ -325,6 +396,35 @@ Prevention:
 Collect logs from all services/servers into one searchable system. Needed because: containers are ephemeral, microservices generate logs everywhere, debugging requires correlation.
 
 **42. ELK stack?**
+
+```
+ELK Stack Architecture:
+
+  App Servers / Containers / K8s Pods
+  ┌────────┐ ┌────────┐ ┌────────┐
+  │ App A  │ │ App B  │ │ App C  │   ← stdout/stderr
+  └────┬───┘ └────┬───┘ └────┬───┘
+       │            │            │
+       └────────────┼────────────┘
+                    ▼
+  ┌───────────────────────────────────┐
+  │  Logstash / Fluentd / Fluent Bit    │   ← Collect, parse,
+  │  (log collector + processor)         │     transform, enrich
+  └─────────────────┬─────────────────┘
+                    ▼
+  ┌───────────────────────────────────┐
+  │  Elasticsearch                       │   ← Store, index,
+  │  (search + analytics engine)          │     full-text search
+  └─────────────────┬─────────────────┘
+                    ▼
+  ┌───────────────────────────────────┐
+  │  Kibana                              │   ← Visualize, search,
+  │  (dashboard + visualization)          │     dashboards, alerts
+  └───────────────────────────────────┘
+
+K8s variant: Fluent Bit DaemonSet (one per node) → Elasticsearch → Kibana
+```
+
 - **Elasticsearch**: Search and analytics engine (stores logs)
 - **Logstash**: Log collection and processing pipeline
 - **Kibana**: Visualization and dashboard UI

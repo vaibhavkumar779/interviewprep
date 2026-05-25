@@ -19,6 +19,18 @@ chmod +x script.sh
 ```
 
 **3. `./script.sh` vs `bash script.sh` vs `source script.sh`?**
+
+```
+./script.sh                   bash script.sh              source script.sh
+┌──────────────────────┐    ┌──────────────────────┐  ┌──────────────────────┐
+│ Parent shell            │    │ Parent shell            │  │ Current shell          │
+│  └─ New child process  │    │  └─ New child process  │  │  (runs in THIS shell) │
+│     (subprocess)       │    │     (subprocess)       │  │  Variables PERSIST     │
+│  Needs chmod +x        │    │  No chmod needed       │  │  cd CHANGES dir        │
+│  Uses shebang line     │    │  Ignores shebang       │  │  Used for .env files   │
+└──────────────────────┘    └──────────────────────┘  └──────────────────────┘
+```
+
 - `./script.sh`: New subprocess. Needs execute permission. Uses shebang interpreter.
 - `bash script.sh`: New subprocess. No execute permission needed. Ignores shebang.
 - `source script.sh` (or `. script.sh`): Runs in **current** shell. Changes to variables/directory persist. Used for loading env files.
@@ -58,16 +70,26 @@ echo $?    # 2 = error (non-zero = failure)
 ```
 
 **8. Special variables?**
-```bash
-$0    # Script name
-$1    # First argument
-$2    # Second argument
-$#    # Number of arguments
-$@    # All arguments (as separate words) — preferred
-$*    # All arguments (as single string)
-$$    # Current process PID
-$!    # PID of last background process
-$?    # Exit status of last command
+
+```
+Bash Special Variables Reference:
+┌─────────┬────────────────────────────────────────────┐
+│ $0      │ Script name                                  │
+│ $1..$9  │ Positional arguments (1st through 9th)       │
+│ $#      │ Number of arguments                          │
+│ $@      │ All args as separate words (★ preferred)      │
+│ $*      │ All args as single string                    │
+│ $$      │ Current process PID                          │
+│ $!      │ PID of last background process               │
+│ $?      │ Exit status of last command                  │
+└─────────┴────────────────────────────────────────────┘
+
+  ./deploy.sh staging us-east-1
+  $0 = ./deploy.sh
+  $1 = staging
+  $2 = us-east-1
+  $# = 2
+  $@ = staging us-east-1
 ```
 
 **9. Read user input?**
@@ -226,6 +248,42 @@ command && echo "success" || echo "failed"
 ---
 
 ## Loops
+
+**20b. I/O Redirection & Pipes (Interview Essential):**
+
+```
+File Descriptors:
+  0 = stdin  (keyboard input)
+  1 = stdout (normal output)
+  2 = stderr (error output)
+
+Redirection:
+  command > file         # stdout → file (overwrite)
+  command >> file        # stdout → file (append)
+  command 2> file        # stderr → file
+  command 2>&1           # stderr → same place as stdout
+  command > file 2>&1    # both stdout+stderr → file
+  command &> file        # shorthand for above (bash)
+  command < file         # file → stdin
+  command <<< "string"   # string → stdin (here-string)
+
+Pipe (connects stdout → stdin):
+  ┌─────────┐    stdout    ┌─────────┐    stdout    ┌─────────┐
+  │ cmd1    │────────────▶│ cmd2    │────────────▶│ cmd3    │
+  │ (grep)  │  → stdin     │ (sort)  │  → stdin     │ (uniq)  │
+  └─────────┘              └─────────┘              └─────────┘
+
+  cat access.log | grep ERROR | awk '{print $1}' | sort | uniq -c | sort -rn
+       │              │             │                │         │
+       │              │             │                │         └── sort numerically
+       │              │             │                └── count duplicates
+       │              │             └── extract first field
+       │              └── filter error lines
+       └── read file
+
+Process substitution:
+  diff <(sort file1) <(sort file2)   # Compare sorted versions
+```
 
 **21. For loop over values?**
 ```bash

@@ -5,6 +5,36 @@
 ## Incident Response & Troubleshooting
 
 **1. Production is down. Walk through your complete incident response process.**
+
+```
+Incident Response Flow:
+
+  Alert fires ──▶ Acknowledge ──▶ Assess severity
+  (PagerDuty)      (< 5 min)       P1/P2/P3?
+                                       │
+                    ┌───────────────┤
+                    ▼                   ▼
+              Communicate          Mitigate FIRST
+              (#incidents,         (rollback, scale,
+               status page)        redirect traffic)
+                    │                   │
+                    │             Don't debug yet!
+                    ▼                   ▼
+              Incident           Diagnose root cause
+              Commander          (logs, metrics,
+              assigned           dashboards, traces)
+                                       │
+                                       ▼
+                                  Fix & Verify
+                                  (deploy hotfix,
+                                   check metrics)
+                                       │
+                                       ▼
+                                  Post-mortem
+                                  (48h, blameless,
+                                   action items)
+```
+
 1. **Detect & Acknowledge**: Alert fires (PagerDuty/Slack). Acknowledge within 5 min. Join incident bridge.
 2. **Communicate**: Post in #incidents channel, update status page. Assign Incident Commander.
 3. **Assess Severity**: P1 (full outage)? P2 (degraded)? How many users affected?
@@ -94,6 +124,30 @@
 ## Design Scenarios
 
 **11. CI/CD pipeline for 15 microservices.**
+
+```
+Microservices CI/CD Architecture:
+
+  ┌───────────────────────────────────────────────────────┐
+  │  Shared Pipeline Template (DRY)                         │
+  │                                                         │
+  │  Trigger ─▶ Build ─▶ Test ─▶ Scan ─▶ Stage ─▶ Prod        │
+  │  (path     (parallel)                 (auto)  (approval)│
+  │   filter)                                                │
+  └───────────────────────────────────────────────────────┘
+        │             │         │         │         │
+   Path trigger    Lint +     Integ     Trivy    Canary
+   (svc-a/**)     Unit Test   tests     SAST     rollout
+                  SAST scan   Compose   SCA      ArgoCD
+                  Docker build
+
+  Infrastructure:
+  ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────┐
+  │ Shared Base │  │ Container  │  │ ArgoCD     │  │ Monitoring │
+  │ Images      │  │ Registry   │  │ (GitOps)   │  │ (Prom+Graf)│
+  └────────────┘  └────────────┘  └────────────┘  └────────────┘
+```
+
 ```
 Per-service pipeline (shared template):
 ├── Trigger: PR/push to service directory
@@ -109,6 +163,34 @@ Shared infrastructure:
 ```
 
 **12. Monitoring and alerting strategy.**
+
+```
+Full Observability Stack:
+
+  Applications (instrumented with OpenTelemetry)
+       │              │              │
+       ▼              ▼              ▼
+  ┌─────────┐  ┌─────────┐  ┌─────────┐
+  │Prometheus│  │  Loki    │  │  Jaeger  │
+  │(metrics) │  │  (logs)  │  │ (traces) │
+  └────┬────┘  └────┬────┘  └────┬────┘
+       │              │              │
+       └─────────────┼─────────────┘
+                      ▼
+               ┌─────────────┐
+               │   Grafana     │  ← Single pane of glass
+               │  Dashboards   │
+               └──────┬──────┘
+                      ▼
+               ┌─────────────┐
+               │ Alertmanager  │
+               └──────┬──────┘
+              ┌────┼────┐
+              ▼       ▼      ▼
+          PagerDuty  Slack  Ticket
+          (P1)       (P2)   (P3)
+```
+
 ```
 Metrics (Prometheus+Grafana): Four Golden Signals per service
 Logs (Loki/ELK): Structured JSON via Fluent Bit DaemonSet

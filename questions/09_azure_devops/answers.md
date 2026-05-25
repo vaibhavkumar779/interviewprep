@@ -28,6 +28,26 @@ stages:
 ```
 
 **2. Stage vs Job vs Step?**
+
+```
+Azure Pipeline Hierarchy:
+┌───────────────────────────────────────────────────────────┐
+│ Pipeline                                                    │
+│                                                             │
+│  ┌──────────────────┐   ┌──────────────────┐   ┌─────────────┐  │
+│  │ Stage: Build      │─▶│ Stage: Test       │─▶│Stage: Deploy│  │
+│  │                    │   │                    │   │             │  │
+│  │ ┌──────────────┐ │   │ ┌────┐ ┌─────┐ │   │ ┌─────────┐ │  │
+│  │ │ Job: Build    │ │   │ │Job1│ │Job2 │ │   │ │ Deploy  │ │  │
+│  │ │              │ │   │ │Unit│ │Integ│ │   │ │ Job     │ │  │
+│  │ │ Step: Build │ │   │ │Test│ │Test │ │   │ │         │ │  │
+│  │ │ Step: Push  │ │   │ └────┘ └─────┘ │   │ │ Step x3 │ │  │
+│  │ └──────────────┘ │   │ (parallel!)       │   │ └─────────┘ │  │
+│  └──────────────────┘   └──────────────────┘   └─────────────┘  │
+│  (sequential)              (parallel jobs)       (approval)  │
+└───────────────────────────────────────────────────────────┘
+```
+
 - **Stage**: Logical division (Build, Test, Deploy). Contains jobs. Can have approval gates.
 - **Job**: Unit of work running on one agent. Contains steps. Jobs in same stage can run in parallel.
 - **Step**: Individual command/task. Runs sequentially within a job.
@@ -234,6 +254,21 @@ jobs:
         steps:
         - script: echo "Deploying"
 ```
+
+```
+Deployment Strategies in Azure Pipelines:
+
+  runOnce:                rolling:               canary:
+  ┌──────────────┐       ┌──────────────┐       ┌──────────────┐
+  │ Deploy ALL    │       │ Deploy 25%   │       │ Deploy 10%   │
+  │ at once       │       │ then 50%     │       │ Monitor      │
+  │               │       │ then 100%    │       │ Promote/Reject│
+  │ Simple        │       │              │       │              │
+  │ Risky for     │       │ Gradual      │       │ Safest       │
+  │ big changes   │       │ Less risk    │       │ Most complex │
+  └──────────────┘       └──────────────┘       └──────────────┘
+```
+
 Deployment jobs: support strategies (runOnce/rolling/canary), track history, link to environments with checks.
 
 **15. Environments? Configure approvals?**
@@ -537,6 +572,27 @@ Proxy to public registries (npmjs.com, pypi.org, nuget.org). Packages fetched fr
 ## Comparison & Migration
 
 **44. Azure DevOps vs GitHub Actions?**
+
+```
+Azure DevOps                            GitHub Actions
+┌─────────────────────────┐          ┌─────────────────────────┐
+│ Boards (work tracking)  │          │ Issues + Projects       │
+│ Repos (Azure Git)       │          │ Repositories (GitHub)   │
+│ Pipelines (CI/CD)       │   vs     │ Actions (CI/CD)         │
+│ Artifacts (packages)    │          │ Packages                │
+│ Test Plans              │          │ (no built-in)           │
+└─────────────────────────┘          └─────────────────────────┘
+
+  Pipeline YAML:                Workflow YAML:
+  trigger: [main]               on: push: branches: [main]
+  stages:                       jobs:
+  - stage: Build                  build:
+    jobs:                           runs-on: ubuntu-latest
+    - job: Build                    steps:
+      steps:                        - uses: actions/checkout@v4
+      - script: dotnet build        - run: dotnet build
+```
+
 | Azure DevOps | GitHub Actions |
 |---|---|
 | Stages → Jobs → Steps | Workflows → Jobs → Steps |

@@ -80,16 +80,34 @@ a is b    # False (different objects)
 ```
 
 **8. Mutable vs immutable types?**
-- **Mutable** (can change): `list`, `dict`, `set`, custom objects
-- **Immutable** (cannot change): `int`, `float`, `str`, `tuple`, `frozenset`, `bool`
+
+```
+┌─── Mutable (can change in-place) ────┬─── Immutable (cannot change) ────────┐
+│                                       │                                      │
+│  list, dict, set, custom objects     │  int, float, str, tuple,            │
+│                                       │  frozenset, bool, bytes              │
+│  lst = [1, 2]                        │  s = "hello"                         │
+│  lst.append(3)  → same object!       │  s = s + " world" → NEW object!     │
+│  id(lst) stays same                  │  id(s) changes                       │
+│                                       │                                      │
+│  ⚠️ Default arg trap:                │  Safe as dict keys ✅               │
+│  def f(lst=[]):  ← shared across     │  Safe as set elements ✅             │
+│      lst.append(1) ← calls!          │  Thread-safe ✅                      │
+└───────────────────────────────────────┴──────────────────────────────────────┘
+```
+
 ```python
 # Immutable: creates new object
 s = "hello"
+print(id(s))        # 140234567890
 s = s + " world"  # New string object created
+print(id(s))        # 140234567999 (different!)
 
 # Mutable: modifies in place
 lst = [1, 2]
-lst.append(3)      # Same object modified
+print(id(lst))      # 140234500000
+lst.append(3)       # Same object modified
+print(id(lst))      # 140234500000 (same!)
 ```
 
 **9. Slicing?**
@@ -150,7 +168,23 @@ for n in get_numbers():
 ```
 
 **14. Generator? Why memory-efficient?**
-A function using `yield` that produces values lazily (one at a time), not all at once. Only holds one value in memory.
+
+A function using `yield` that produces values lazily (one at a time), not all at once.
+
+```
+List (eager):                    Generator (lazy):
+┌────────────────────────┐      ┌────────────────────────┐
+│ Computes ALL values     │      │ Computes ONE at a time  │
+│ Stores ALL in memory    │      │ Stores only current     │
+│                          │      │                          │
+│ [0, 1, 4, 9, 16, ...]  │      │ → 0 (compute, yield)   │
+│  1M items = ~8MB        │      │ → 1 (compute, yield)   │
+│                          │      │ → 4 (compute, yield)   │
+│                          │      │ ... one at a time       │
+│                          │      │ ~120 bytes total!       │
+└────────────────────────┘      └────────────────────────┘
+```
+
 ```python
 # List: All 1M items in memory at once
 big_list = [x**2 for x in range(1_000_000)]  # ~8MB
@@ -176,11 +210,33 @@ reduce(lambda a, b: a + b, [1, 2, 3, 4])  # 10
 ```
 
 **17. Decorator? Write one.**
+
 Function that wraps another function to add behavior:
+
+```
+How decorators work:
+
+  @timer                           Equivalent to:
+  def slow_function():      →     slow_function = timer(slow_function)
+      time.sleep(1)
+
+  Call chain:
+  slow_function()  →  wrapper()  →  original slow_function()  →  wrapper returns
+                       ↑ start timer                              ↑ stop timer
+
+  Decorator stack (multiple decorators):
+  @decorator_A
+  @decorator_B
+  def func():        →  func = decorator_A(decorator_B(func))
+      pass               Execution: A_wrapper → B_wrapper → func → B_return → A_return
+```
+
 ```python
 import time
+from functools import wraps
 
 def timer(func):
+    @wraps(func)   # Preserves original function's __name__ and __doc__
     def wrapper(*args, **kwargs):
         start = time.time()
         result = func(*args, **kwargs)
@@ -943,6 +999,31 @@ for p in pipelines:
 ---
 
 ## OOP
+
+```
+Python OOP Concepts:
+
+  ┌────────────────────────────────────────────────────────┐
+  │  Encapsulation: Bundle data + methods in class           │
+  │  Inheritance:   Reuse code from parent class              │
+  │  Polymorphism:  Same method, different behavior            │
+  │  Abstraction:   Hide complex details, expose interface     │
+  └────────────────────────────────────────────────────────┘
+
+  Inheritance hierarchy:
+  ┌────────────┐
+  │   Animal    │          ← Base class
+  │ speak()     │
+  └──────┬─────┘
+        │
+   ┌────┴────┐
+   │         │
+┌──┴────┐ ┌─┴─────┐
+│  Dog   │ │  Cat   │     ← Child classes
+│speak() │ │speak() │     ← Override parent method
+│"Woof!" │ │"Meow!" │     ← Polymorphism!
+└───────┘ └───────┘
+```
 
 **37. Class? Object?**
 ```python
