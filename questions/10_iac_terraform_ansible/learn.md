@@ -1,246 +1,634 @@
-# IaC - Terraform & Ansible - LEARNING MATERIAL
+# Infrastructure as Code (Terraform & Ansible) — Deep-Dive Learning Guide
 
 ---
 
-## IaC Overview
+## 1. IaC Overview
 
-```mermaid
-graph TD
-    subgraph Declarative [Declarative - What you want]
-        TF[Terraform<br/>Infrastructure provisioning]
-        CF[CloudFormation<br/>AWS only]
-    end
-    subgraph Procedural [Procedural/Hybrid - How to do it]
-        AN[Ansible<br/>Configuration management]
-        CH[Chef / Puppet]
-    end
-    subgraph Workflow
-        TF -->|Creates| INFRA[VMs, Networks, DBs]
-        INFRA -->|Configured by| AN
-        AN -->|Installs| SW[Software, packages, configs]
-    end
+```
+┌─── Without IaC (manual) ────────────────────────────────────┐
+│  Click through portal → inconsistent → no audit trail       │
+│  "It works on my infra" → snowflake servers                 │
+└──────────────────────────────────────────────────────────────┘
+
+┌─── With IaC ────────────────────────────────────────────────┐
+│  Code → version controlled → reviewed → tested → applied   │
+│  Reproducible, consistent, auditable, self-documenting     │
+└──────────────────────────────────────────────────────────────┘
+
+┌─── Two Approaches ──────────────────────────────────────────┐
+│                                                              │
+│  Declarative (WHAT)              Imperative (HOW)           │
+│  "I want 3 VMs"                  "Create VM1, Create VM2,   │
+│  Tool figures out HOW             Create VM3"                │
+│                                                              │
+│  Terraform, CloudFormation       Ansible, Chef, Puppet      │
+│  Kubernetes manifests            Shell scripts               │
+│                                                              │
+│  Idempotent by design            Must code idempotency      │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-## Terraform
+### Terraform vs Ansible — When to Use What
 
-### How Terraform Works
+```
+┌─── Terraform ──────────────┐    ┌─── Ansible ─────────────────┐
+│  PROVISION infrastructure  │    │  CONFIGURE what's on infra   │
+│                            │    │                               │
+│  Create VMs, networks,     │    │  Install packages, copy      │
+│  load balancers, databases,│    │  configs, start services,    │
+│  DNS, storage accounts     │    │  deploy apps, patch OS       │
+│                            │    │                               │
+│  Declarative (desired state)│   │  Procedural (step by step)   │
+│  State file tracks reality │    │  Agentless (SSH/WinRM)       │
+│  HCL language              │    │  YAML playbooks              │
+│  Plan → Apply workflow     │    │  Push-based execution        │
+└────────────────────────────┘    └───────────────────────────────┘
 
-```mermaid
-graph LR
-    TF[main.tf<br/>HCL Code] -->|terraform init| INIT[Download Providers]
-    INIT -->|terraform plan| PLAN[Execution Plan<br/>What will change]
-    PLAN -->|terraform apply| APPLY[Create/Update Resources]
-    APPLY -->|Updates| STATE[terraform.tfstate<br/>Current state]
-    STATE -->|terraform destroy| DESTROY[Delete All Resources]
+Common pattern:  Terraform creates VMs → Ansible configures them
 ```
 
-### Terraform File Structure
+---
+
+## 2. Terraform Architecture
+
 ```
-project/
-├── main.tf             # Primary resources
-├── variables.tf        # Input variable definitions
-├── outputs.tf          # Output values
-├── providers.tf        # Provider configuration
-├── terraform.tfvars    # Variable values (don't commit secrets!)
-├── backend.tf          # Remote state config
-└── modules/
-    └── vpc/
-        ├── main.tf
-        ├── variables.tf
-        └── outputs.tf
+┌─── Terraform Workflow ──────────────────────────────────────┐
+│                                                              │
+│  1. Write    →  .tf files (HCL configuration)               │
+│  2. Init     →  terraform init (download providers)         │
+│  3. Plan     →  terraform plan (preview changes)            │
+│  4. Apply    →  terraform apply (execute changes)           │
+│  5. Destroy  →  terraform destroy (tear down)               │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+
+┌─── How Terraform Works Internally ──────────────────────────┐
+│                                                              │
+│  .tf files (desired state)                                  │
+│       │                                                      │
+│       ▼                                                      │
+│  Terraform Core                                              │
+│       │                                                      │
+│  ┌────┴──────┐                                              │
+│  │State File │  ← records what Terraform has ACTUALLY created│
+│  │(.tfstate) │  ← maps resources to real IDs                │
+│  └────┬──────┘                                              │
+│       │                                                      │
+│       ▼  DIFF: desired vs actual                            │
+│  ┌─────────────┐                                            │
+│  │   Plan      │  ← "I need to create 2 VMs, delete 1 LB" │
+│  └─────┬───────┘                                            │
+│        │                                                     │
+│        ▼  Apply                                              │
+│  ┌─────────────┐                                            │
+│  │  Providers  │  ← API calls to cloud                      │
+│  │  (azurerm,  │                                            │
+│  │   aws, gcp) │                                            │
+│  └─────────────┘                                            │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-### Complete Terraform Example
+### State File — Critical Concept
+
+```
+terraform.tfstate contains:
+  - Every resource Terraform manages
+  - Resource IDs (Azure resource ID, AWS ARN, etc.)
+  - All attributes (IP, DNS name, etc.)
+  - Dependencies between resources
+
+NEVER:
+  ❌ Edit state manually
+  ❌ Store state in Git (contains secrets!)
+  ❌ Run terraform from multiple machines with local state
+
+ALWAYS:
+  ✅ Use remote backend (Azure Blob, S3, Terraform Cloud)
+  ✅ Enable state locking (prevent concurrent modifications)
+  ✅ Enable encryption at rest
+```
+
 ```hcl
-# providers.tf
+# Remote backend configuration
+terraform {
+  backend "azurerm" {
+    resource_group_name  = "rg-terraform-state"
+    storage_account_name = "tfstatestore"
+    container_name       = "tfstate"
+    key                  = "prod.terraform.tfstate"
+  }
+}
+```
+
+---
+
+## 3. Terraform — HCL Deep Dive
+
+```hcl
+# ─── Provider ───
 terraform {
   required_version = ">= 1.5"
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"
-      version = "~> 3.0"
+      version = "~> 3.0"       # Any 3.x version
     }
-  }
-  backend "azurerm" {
-    resource_group_name  = "terraform-state"
-    storage_account_name = "tfstate12345"
-    container_name       = "state"
-    key                  = "prod.tfstate"
   }
 }
 
 provider "azurerm" {
   features {}
+  subscription_id = var.subscription_id
 }
 
-# variables.tf
+# ─── Variables ───
 variable "environment" {
   type        = string
   description = "Environment name"
-  default     = "dev"
+  default     = "staging"
   validation {
     condition     = contains(["dev", "staging", "prod"], var.environment)
     error_message = "Must be dev, staging, or prod."
   }
 }
-variable "location" {
-  type    = string
-  default = "East US"
+
+variable "vm_count" {
+  type    = number
+  default = 3
 }
 
-# main.tf
-resource "azurerm_resource_group" "main" {
-  name     = "rg-myapp-${var.environment}"
-  location = var.location
-  tags = {
-    environment = var.environment
-    managed_by  = "terraform"
+variable "tags" {
+  type = map(string)
+  default = {
+    managed_by = "terraform"
+    team       = "devops"
   }
 }
 
-resource "azurerm_kubernetes_cluster" "aks" {
-  name                = "aks-${var.environment}"
+# ─── Locals ───
+locals {
+  name_prefix = "${var.environment}-myapp"
+  common_tags = merge(var.tags, {
+    environment = var.environment
+  })
+}
+
+# ─── Resource ───
+resource "azurerm_resource_group" "main" {
+  name     = "${local.name_prefix}-rg"
+  location = "East US"
+  tags     = local.common_tags
+}
+
+resource "azurerm_virtual_network" "main" {
+  name                = "${local.name_prefix}-vnet"
+  address_space       = ["10.0.0.0/16"]
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
-  dns_prefix          = "myapp-${var.environment}"
+  tags                = local.common_tags
+}
 
-  default_node_pool {
-    name       = "default"
-    node_count = var.environment == "prod" ? 3 : 1
-    vm_size    = "Standard_DS2_v2"
-  }
+# ─── Count (create multiple) ───
+resource "azurerm_linux_virtual_machine" "web" {
+  count               = var.vm_count
+  name                = "${local.name_prefix}-web-${count.index}"
+  resource_group_name = azurerm_resource_group.main.name
+  location            = azurerm_resource_group.main.location
+  size                = "Standard_B2s"
+  admin_username      = "azureuser"
+  # ...
+}
 
-  identity {
-    type = "SystemAssigned"
+# ─── for_each (create from map/set) ───
+variable "environments" {
+  default = {
+    dev     = { size = "Standard_B1s", count = 1 }
+    staging = { size = "Standard_B2s", count = 2 }
+    prod    = { size = "Standard_D4s_v3", count = 5 }
   }
 }
 
-# outputs.tf
-output "kube_config" {
-  value     = azurerm_kubernetes_cluster.aks.kube_config_raw
-  sensitive = true
+resource "azurerm_linux_virtual_machine" "env" {
+  for_each            = var.environments
+  name                = "vm-${each.key}"
+  size                = each.value.size
+  # ...
 }
-```
 
-### Terraform State
+# ─── Data source (read existing resource) ───
+data "azurerm_key_vault" "existing" {
+  name                = "mykeyvault"
+  resource_group_name = "rg-shared"
+}
 
-```mermaid
-graph TD
-    LOCAL[Local State<br/>terraform.tfstate<br/>Single developer only]
-    REMOTE[Remote State<br/>Azure Blob / S3 / Terraform Cloud<br/>Team collaboration]
+# ─── Output ───
+output "resource_group_id" {
+  value       = azurerm_resource_group.main.id
+  description = "The ID of the resource group"
+}
 
-    REMOTE --> LOCK[State Locking<br/>Prevents concurrent changes]
-    REMOTE --> ENCRYPT[Encryption at rest]
-    REMOTE --> VERSION[Versioning<br/>Rollback capability]
-```
-
-### Key Terraform Commands
-```bash
-terraform init          # Download providers, setup backend
-terraform plan          # Preview changes
-terraform apply         # Apply changes
-terraform destroy       # Delete everything
-terraform fmt           # Format code
-terraform validate      # Check syntax
-terraform state list    # List resources in state
-terraform state show    # Show resource details
-terraform import        # Import existing resource
-terraform workspace     # Manage workspaces (environments)
+output "vm_ips" {
+  value = [for vm in azurerm_linux_virtual_machine.web : vm.private_ip_address]
+}
 ```
 
 ---
 
-## Ansible
+## 4. Terraform Modules
 
-### How Ansible Works
+```
+modules/
+├── networking/
+│   ├── main.tf          # Resources: VNet, subnets, NSGs
+│   ├── variables.tf     # Input variables
+│   ├── outputs.tf       # Output values
+│   └── README.md
+├── compute/
+│   ├── main.tf          # Resources: VMs, scale sets
+│   ├── variables.tf
+│   └── outputs.tf
+└── database/
+    ├── main.tf          # Resources: SQL server, DB
+    ├── variables.tf
+    └── outputs.tf
 
-```mermaid
-graph LR
-    CTRL[Control Node<br/>Your laptop/CI server] -->|SSH| HOST1[Managed Host 1]
-    CTRL -->|SSH| HOST2[Managed Host 2]
-    CTRL -->|SSH| HOST3[Managed Host 3]
-
-    subgraph ControlNode
-        PB[Playbook<br/>YAML tasks]
-        INV[Inventory<br/>Host list]
-        ROLES[Roles<br/>Reusable configs]
-    end
+environments/
+├── dev/
+│   └── main.tf          # Uses modules with dev values
+├── staging/
+│   └── main.tf
+└── prod/
+    └── main.tf
 ```
 
-**Key difference from Terraform:** Ansible is **agentless** - connects via SSH, no software to install on targets.
+```hcl
+# environments/prod/main.tf
+module "networking" {
+  source         = "../../modules/networking"
+  environment    = "prod"
+  vnet_cidr      = "10.0.0.0/16"
+  subnet_count   = 4
+}
 
-### Ansible Playbook Example
+module "compute" {
+  source         = "../../modules/compute"
+  environment    = "prod"
+  subnet_id      = module.networking.subnet_ids[0]   # Use output from networking
+  vm_count       = 5
+  vm_size        = "Standard_D4s_v3"
+}
+```
+
+---
+
+## 5. Terraform Key Commands
+
+```bash
+terraform init              # Download providers + modules, init backend
+terraform plan              # Preview changes (dry run)
+terraform plan -out=plan.tf # Save plan for exact apply
+terraform apply             # Apply changes (with confirmation)
+terraform apply plan.tf     # Apply saved plan (no confirmation)
+terraform destroy           # Destroy ALL managed resources
+
+terraform fmt               # Format .tf files
+terraform validate          # Syntax validation
+terraform state list        # List resources in state
+terraform state show <res>  # Show resource details
+terraform import <res> <id> # Import existing resource into state
+terraform taint <res>       # Mark for recreation on next apply
+terraform output            # Show all outputs
+
+# ─── Workspaces (multiple environments, same code) ───
+terraform workspace new staging
+terraform workspace select prod
+terraform workspace list
+```
+
+---
+
+## 6. Ansible Architecture
+
+```
+┌─── Ansible Architecture ───────────────────────────────────┐
+│                                                             │
+│  Control Node (your laptop / CI agent)                      │
+│  ┌────────────────────────────────────────────────────────┐│
+│  │  ansible / ansible-playbook                            ││
+│  │  ┌──────────┐  ┌───────────┐  ┌─────────────────────┐││
+│  │  │Inventory │  │ Playbook  │  │ Roles / Collections │││
+│  │  │(hosts)   │  │ (tasks)   │  │ (reusable units)    │││
+│  │  └──────────┘  └───────────┘  └─────────────────────┘││
+│  └──────────────────────────┬─────────────────────────────┘│
+│                             │ SSH / WinRM (agentless!)      │
+│                             │ (no agent to install!)        │
+│  ┌──────────────────────────▼─────────────────────────────┐│
+│  │  Managed Nodes (targets)                                ││
+│  │  ┌─────────┐  ┌─────────┐  ┌─────────┐               ││
+│  │  │ web1    │  │ web2    │  │ db1     │               ││
+│  │  │ (Linux) │  │ (Linux) │  │ (Linux) │               ││
+│  │  └─────────┘  └─────────┘  └─────────┘               ││
+│  └─────────────────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────┘
+
+Key difference from Terraform:
+  - Agentless (uses SSH)
+  - Push-based (you run it, it pushes config to nodes)
+  - Procedural (tasks run in order)
+  - Idempotent modules (most modules check before acting)
+```
+
+---
+
+## 7. Ansible — Inventory
+
+```ini
+# inventory/hosts.ini
+
+[webservers]
+web1.example.com ansible_user=deploy
+web2.example.com ansible_user=deploy
+web3.example.com ansible_user=deploy
+
+[databases]
+db1.example.com ansible_user=admin ansible_port=2222
+
+[staging:children]
+webservers
+databases
+
+[staging:vars]
+env=staging
+log_level=debug
+
+[production]
+prod-web[1:5].example.com    # prod-web1 through prod-web5
+```
+
+```yaml
+# Dynamic inventory (YAML format)
+# inventory/hosts.yml
+all:
+  children:
+    webservers:
+      hosts:
+        web1.example.com:
+          ansible_user: deploy
+          http_port: 8080
+        web2.example.com:
+          ansible_user: deploy
+    databases:
+      hosts:
+        db1.example.com:
+      vars:
+        db_port: 5432
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+```
+
+---
+
+## 8. Ansible — Playbooks
+
 ```yaml
 # deploy.yml
 ---
 - name: Deploy web application
   hosts: webservers
-  become: yes                    # sudo
+  become: yes                    # Run as root (sudo)
   vars:
-    app_version: "1.2.3"
-    app_dir: "/opt/myapp"
+    app_version: "2.1.0"
+    app_dir: /opt/myapp
+    app_user: appuser
+
+  pre_tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
 
   tasks:
-  - name: Install dependencies
-    apt:
-      name:
-        - nginx
-        - python3-pip
-      state: present
-      update_cache: yes
+    - name: Create app user
+      user:
+        name: "{{ app_user }}"
+        system: yes
+        shell: /usr/sbin/nologin
 
-  - name: Create app directory
-    file:
-      path: "{{ app_dir }}"
-      state: directory
-      owner: www-data
-      mode: '0755'
+    - name: Install dependencies
+      apt:
+        name:
+          - nginx
+          - python3
+          - python3-pip
+        state: present
 
-  - name: Copy application config
-    template:
-      src: templates/config.j2
-      dest: "{{ app_dir }}/config.yml"
-    notify: restart app            # Trigger handler
+    - name: Create app directory
+      file:
+        path: "{{ app_dir }}"
+        state: directory
+        owner: "{{ app_user }}"
+        mode: '0755'
 
-  - name: Start nginx
-    service:
-      name: nginx
-      state: started
-      enabled: yes
+    - name: Copy application code
+      copy:
+        src: files/app/
+        dest: "{{ app_dir }}/"
+        owner: "{{ app_user }}"
+      notify: Restart app          # Trigger handler on change
+
+    - name: Deploy nginx config
+      template:
+        src: templates/nginx.conf.j2
+        dest: /etc/nginx/sites-available/myapp
+      notify: Reload nginx
+
+    - name: Enable nginx site
+      file:
+        src: /etc/nginx/sites-available/myapp
+        dest: /etc/nginx/sites-enabled/myapp
+        state: link
+      notify: Reload nginx
+
+    - name: Ensure app service is running
+      systemd:
+        name: myapp
+        state: started
+        enabled: yes
+
+    - name: Wait for app to be healthy
+      uri:
+        url: "http://localhost:8080/health"
+        status_code: 200
+      register: health
+      until: health.status == 200
+      retries: 10
+      delay: 5
 
   handlers:
-  - name: restart app
-    service:
-      name: myapp
-      state: restarted
+    - name: Restart app
+      systemd:
+        name: myapp
+        state: restarted
+
+    - name: Reload nginx
+      systemd:
+        name: nginx
+        state: reloaded
+
+  post_tasks:
+    - name: Send notification
+      uri:
+        url: "https://hooks.slack.com/services/xxx"
+        method: POST
+        body_format: json
+        body:
+          text: "Deployed v{{ app_version }} to {{ inventory_hostname }}"
 ```
 
-### Inventory File
-```ini
-# inventory.ini
-[webservers]
-web1.example.com ansible_user=deploy
-web2.example.com ansible_user=deploy
+---
 
-[dbservers]
-db1.example.com ansible_user=admin
+## 9. Ansible — Roles
 
-[production:children]
-webservers
-dbservers
-
-[production:vars]
-ansible_ssh_private_key_file=~/.ssh/prod_key
+```
+roles/
+└── webserver/
+    ├── tasks/
+    │   └── main.yml          # Main task list
+    ├── handlers/
+    │   └── main.yml          # Event handlers
+    ├── templates/
+    │   └── nginx.conf.j2     # Jinja2 templates
+    ├── files/
+    │   └── ssl-cert.pem      # Static files
+    ├── vars/
+    │   └── main.yml          # Role variables
+    ├── defaults/
+    │   └── main.yml          # Default values (lowest priority)
+    ├── meta/
+    │   └── main.yml          # Dependencies, metadata
+    └── README.md
 ```
 
-### Ansible vs Terraform
+```yaml
+# Using roles in playbook:
+- hosts: webservers
+  roles:
+    - common                  # roles/common/
+    - role: webserver         # roles/webserver/
+      vars:
+        http_port: 8080
+    - role: monitoring
+      when: enable_monitoring | bool
+```
 
-| Aspect | Terraform | Ansible |
-|---|---|---|
-| Purpose | Provision infrastructure | Configure systems |
-| Approach | Declarative only | Procedural + Declarative modules |
-| State | Maintains state file | Stateless (checks current state) |
-| Agent | No agent (API calls) | No agent (SSH) |
-| Idempotent | Yes (by design) | Yes (if using modules correctly) |
-| Best for | Cloud resources, networking | Software install, config, deployment |
-| Language | HCL | YAML + Jinja2 |
+---
+
+## 10. Ansible Key Modules
+
+| Module | Purpose | Example |
+|--------|---------|---------|
+| `apt/yum/dnf` | Package management | `apt: name=nginx state=present` |
+| `copy` | Copy files to remote | `copy: src=app.conf dest=/etc/` |
+| `template` | Render Jinja2 template | `template: src=conf.j2 dest=/etc/` |
+| `file` | File/directory permissions | `file: path=/opt state=directory` |
+| `service/systemd` | Manage services | `systemd: name=nginx state=started` |
+| `user/group` | User management | `user: name=deploy groups=docker` |
+| `command/shell` | Run commands | `command: /opt/scripts/deploy.sh` |
+| `git` | Clone/pull repos | `git: repo=URL dest=/opt/app` |
+| `docker_container` | Manage containers | `docker_container: name=web image=nginx` |
+| `uri` | HTTP requests | `uri: url=http://localhost/health` |
+| `lineinfile` | Edit single line in file | `lineinfile: path=/etc/hosts line=...` |
+| `cron` | Manage cron jobs | `cron: name=backup job=/opt/backup.sh` |
+
+---
+
+## 11. Jinja2 Templates
+
+```jinja2
+{# templates/nginx.conf.j2 #}
+server {
+    listen {{ http_port | default(80) }};
+    server_name {{ server_name }};
+
+    {% if ssl_enabled %}
+    listen 443 ssl;
+    ssl_certificate /etc/ssl/{{ domain }}.crt;
+    ssl_certificate_key /etc/ssl/{{ domain }}.key;
+    {% endif %}
+
+    {% for upstream in app_servers %}
+    upstream backend {
+        server {{ upstream }}:{{ app_port }};
+    }
+    {% endfor %}
+
+    location / {
+        proxy_pass http://backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+```
+
+---
+
+## 12. Ansible Key Commands
+
+```bash
+# Run playbook
+ansible-playbook deploy.yml -i inventory/hosts.ini
+
+# Limit to specific hosts
+ansible-playbook deploy.yml -l web1.example.com
+
+# Dry run (check mode)
+ansible-playbook deploy.yml --check --diff
+
+# Extra variables
+ansible-playbook deploy.yml -e "app_version=2.1.0 env=prod"
+
+# Vault (encrypt secrets)
+ansible-vault create secrets.yml
+ansible-vault edit secrets.yml
+ansible-playbook deploy.yml --ask-vault-pass
+ansible-playbook deploy.yml --vault-password-file=.vault_pass
+
+# Ad-hoc commands
+ansible all -m ping                           # Test connectivity
+ansible webservers -m shell -a "uptime"       # Run command
+ansible webservers -m apt -a "name=nginx state=latest" -b  # Install
+```
+
+---
+
+## 13. Terraform + Ansible Together
+
+```
+┌─── Common Pattern ──────────────────────────────────────────┐
+│                                                              │
+│  Step 1: Terraform provisions infrastructure                │
+│    - VMs, networks, load balancers, DNS                     │
+│    - Outputs: VM IPs, DNS names, resource IDs               │
+│                                                              │
+│  Step 2: Terraform generates Ansible inventory              │
+│    - Dynamic inventory from terraform output                │
+│                                                              │
+│  Step 3: Ansible configures the VMs                         │
+│    - Install packages, deploy apps, configure services      │
+│                                                              │
+│  Pipeline:                                                   │
+│    terraform apply → generate inventory → ansible-playbook  │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+```hcl
+# Terraform: output IPs for Ansible
+resource "local_file" "ansible_inventory" {
+  content = templatefile("inventory.tpl", {
+    web_servers = azurerm_linux_virtual_machine.web[*].private_ip_address
+    db_servers  = [azurerm_linux_virtual_machine.db.private_ip_address]
+  })
+  filename = "${path.module}/inventory.ini"
+}
+```

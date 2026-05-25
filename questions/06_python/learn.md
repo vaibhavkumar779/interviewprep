@@ -1,39 +1,47 @@
-# Python - LEARNING MATERIAL
+# Python — Deep-Dive Learning Guide (DevOps Focus)
 
 ---
 
-## Python Basics Refresher
+## 1. Python Fundamentals for DevOps
 
 ### Data Types & Structures
+
 ```python
-# Strings
-name = "Vaibhav"
-f_string = f"Hello, {name}!"
-multiline = """Line 1
-Line 2"""
+# ─── Strings ───
+name = "DevOps"
+f"Hello {name}, version {2+1}"   # f-string (3.6+)
+"path/to/file".split("/")        # ['path', 'to', 'file']
+"/".join(["path", "to", "file"]) # 'path/to/file'
+"  spaces  ".strip()             # 'spaces'
 
-# Lists (mutable, ordered)
-fruits = ["apple", "banana", "cherry"]
-fruits.append("date")
-fruits[0]          # "apple"
-fruits[-1]         # "date"
-sliced = fruits[1:3]  # ["banana", "cherry"]
+# ─── Lists (mutable, ordered) ───
+servers = ["web1", "web2", "db1"]
+servers.append("web3")           # Add to end
+servers.extend(["lb1", "lb2"])   # Add multiple
+servers.remove("db1")            # Remove by value
+servers.pop(0)                   # Remove by index, returns it
+[s for s in servers if s.startswith("web")]  # List comprehension
 
-# Tuples (immutable)
-point = (10, 20)
+# ─── Dictionaries (key-value, ordered 3.7+) ───
+config = {"host": "localhost", "port": 8080, "debug": True}
+config.get("timeout", 30)       # Default if missing (no KeyError)
+config.update({"port": 9090})   # Update/add keys
+{k: v for k, v in config.items() if isinstance(v, int)}  # Dict comprehension
 
-# Dictionaries
-config = {"host": "localhost", "port": 8080}
-config["host"]
-config.get("timeout", 30)  # default if missing
+# ─── Sets (unique, unordered) ───
+live = {"web1", "web2", "web3"}
+expected = {"web1", "web2", "web3", "web4"}
+expected - live                  # {'web4'} — missing servers!
 
-# Sets (unique values)
-tags = {"python", "devops", "ci"}
+# ─── Tuples (immutable) ───
+point = (10, 20)                 # Can't modify after creation
+x, y = point                    # Unpacking
 ```
 
 ### Control Flow
+
 ```python
-# If/elif/else
+# ─── Conditional ───
 if status == 200:
     print("OK")
 elif status == 404:
@@ -41,199 +49,512 @@ elif status == 404:
 else:
     print(f"Error: {status}")
 
-# For loops
-for item in fruits:
-    print(item)
-for i, item in enumerate(fruits):
-    print(f"{i}: {item}")
-for key, value in config.items():
+# ─── Ternary ───
+env = "prod" if is_production else "dev"
+
+# ─── Loops ───
+for server in servers:
+    deploy(server)
+
+for i, server in enumerate(servers):   # Index + value
+    print(f"{i}: {server}")
+
+for key, value in config.items():      # Dict iteration
     print(f"{key}={value}")
 
-# List comprehension
-squares = [x**2 for x in range(10)]
-evens = [x for x in range(20) if x % 2 == 0]
-
-# Dict comprehension
-env_upper = {k.upper(): v for k, v in config.items()}
+# ─── While (careful: always ensure exit condition!) ───
+retries = 3
+while retries > 0:
+    if health_check():
+        break
+    retries -= 1
 ```
 
-### Functions
+---
+
+## 2. Functions & Error Handling
+
 ```python
-def deploy(env: str, version: str = "latest", dry_run: bool = False) -> bool:
-    """Deploy application to specified environment."""
+# ─── Functions ───
+def deploy(service: str, env: str = "staging", dry_run: bool = False) -> bool:
+    """Deploy a service to the specified environment."""
     if dry_run:
-        print(f"Would deploy {version} to {env}")
+        print(f"[DRY RUN] Would deploy {service} to {env}")
         return True
-    # actual deploy logic
+    # ... actual deploy logic
     return True
 
-# Lambda
-sort_by_age = sorted(users, key=lambda u: u["age"])
+# ─── *args, **kwargs ───
+def run_command(cmd, *args, **kwargs):
+    """Run command with variable arguments."""
+    timeout = kwargs.get("timeout", 30)
+    subprocess.run([cmd, *args], timeout=timeout)
 
-# *args and **kwargs
-def log_event(*args, **kwargs):
-    print(f"Args: {args}, Kwargs: {kwargs}")
+# ─── Lambda (anonymous functions) ───
+sorted(servers, key=lambda s: s.split("-")[1])
+
+# ─── Error Handling ───
+import subprocess
+
+try:
+    result = subprocess.run(["kubectl", "get", "pods"],
+                          capture_output=True, text=True, check=True)
+    print(result.stdout)
+except subprocess.CalledProcessError as e:
+    print(f"Command failed with exit code {e.returncode}")
+    print(f"stderr: {e.stderr}")
+except FileNotFoundError:
+    print("kubectl not found in PATH")
+except Exception as e:
+    print(f"Unexpected error: {type(e).__name__}: {e}")
+finally:
+    print("Cleanup done")
+
+# ─── Custom Exception ───
+class DeploymentError(Exception):
+    def __init__(self, service, env, message):
+        self.service = service
+        self.env = env
+        super().__init__(f"Failed to deploy {service} to {env}: {message}")
 ```
 
-## File Operations
+---
+
+## 3. File Operations (Critical for DevOps)
+
 ```python
-# Read file
-with open("config.yaml", "r") as f:
-    content = f.read()
-
-# Write file
-with open("output.txt", "w") as f:
-    f.write("Hello World\n")
-
-# Read lines
-with open("hosts.txt") as f:
-    hosts = [line.strip() for line in f if line.strip()]
-
-# JSON
+from pathlib import Path
 import json
-data = json.loads('{"name": "app"}')
-json_str = json.dumps(data, indent=2)
-with open("data.json") as f:
-    data = json.load(f)
+import yaml   # pip install pyyaml
 
-# YAML
-import yaml
-with open("config.yaml") as f:
-    config = yaml.safe_load(f)
+# ─── pathlib (modern, preferred) ───
+config_dir = Path("/etc/myapp")
+config_file = config_dir / "config.yaml"     # / operator joins paths!
+
+config_file.exists()                          # True/False
+config_file.is_file()                         # True/False
+config_dir.mkdir(parents=True, exist_ok=True) # mkdir -p
+list(config_dir.glob("*.yaml"))               # Find files
+config_file.read_text()                       # Read entire file
+config_file.write_text("key: value\n")        # Write file
+
+# ─── Context managers (auto-close) ───
+with open("servers.txt", "r") as f:
+    servers = [line.strip() for line in f if line.strip()]
+
+with open("output.log", "a") as f:     # Append mode
+    f.write(f"Deployed at {datetime.now()}\n")
+
+# ─── JSON ───
+with open("config.json") as f:
+    config = json.load(f)              # Parse JSON → dict
+
+with open("output.json", "w") as f:
+    json.dump(config, f, indent=2)     # Dict → JSON file
+
+# ─── YAML ───
+with open("deployment.yaml") as f:
+    manifest = yaml.safe_load(f)       # Parse YAML → dict
+
+with open("output.yaml", "w") as f:
+    yaml.dump(manifest, f, default_flow_style=False)
+
+# ─── INI/Config files ───
+import configparser
+config = configparser.ConfigParser()
+config.read("app.ini")
+db_host = config["database"]["host"]
 ```
 
-## subprocess Module (CRITICAL for DevOps)
+---
 
-```mermaid
-graph LR
-    PY[Python Script] -->|subprocess.run| CMD[Shell Command]
-    CMD -->|stdout, stderr, returncode| PY
-```
+## 4. subprocess — Running Shell Commands
 
 ```python
 import subprocess
 
-# Basic command
-result = subprocess.run(["ls", "-la"], capture_output=True, text=True)
-print(result.stdout)
-print(result.returncode)  # 0 = success
-
-# With error handling
+# ─── Simple command ───
 result = subprocess.run(
-    ["kubectl", "get", "pods", "-n", "prod"],
-    capture_output=True, text=True, timeout=30
+    ["docker", "ps", "--format", "{{.Names}}"],
+    capture_output=True,    # Capture stdout + stderr
+    text=True,              # Return strings (not bytes)
+    check=True,             # Raise on non-zero exit
+    timeout=30              # Kill if too slow
 )
-if result.returncode != 0:
-    print(f"Error: {result.stderr}")
+print(result.stdout)        # Container names
+print(result.returncode)    # 0
 
-# Shell mode (use carefully - shell injection risk!)
+# ─── Shell commands (pipes, redirects) ───
 result = subprocess.run(
-    "ps aux | grep python",
-    shell=True, capture_output=True, text=True
+    "kubectl get pods | grep -v Running",
+    shell=True,             # SECURITY RISK: only with trusted input!
+    capture_output=True, text=True
 )
 
-# check=True raises exception on non-zero exit
-try:
-    subprocess.run(["docker", "build", "."], check=True)
-except subprocess.CalledProcessError as e:
-    print(f"Build failed: {e}")
+# ─── Streaming output (long-running commands) ───
+process = subprocess.Popen(
+    ["docker", "build", "-t", "myapp", "."],
+    stdout=subprocess.PIPE,
+    stderr=subprocess.STDOUT,
+    text=True
+)
+for line in process.stdout:
+    print(line, end="")     # Print as it runs
+process.wait()
+if process.returncode != 0:
+    raise Exception("Build failed!")
+
+# ─── Safe command building (NEVER use f-strings with shell=True!) ───
+# BAD:  subprocess.run(f"docker rm {user_input}", shell=True)  # INJECTION!
+# GOOD: subprocess.run(["docker", "rm", user_input])           # Safe list form
 ```
 
-## os Module
+---
+
+## 5. HTTP Requests (APIs)
+
 ```python
-import os
+import requests   # pip install requests
 
-os.environ["PATH"]                   # Get env var
-os.environ.get("API_KEY", "default") # With default
-os.getcwd()                          # Current directory
-os.chdir("/tmp")                     # Change directory
-os.path.exists("/etc/config")        # Check exists
-os.path.join("dir", "file.txt")      # Path joining
-os.makedirs("a/b/c", exist_ok=True)  # Create dirs
-os.listdir(".")                      # List directory
-os.remove("file.txt")               # Delete file
+# ─── GET ───
+response = requests.get(
+    "https://api.github.com/repos/kubernetes/kubernetes",
+    headers={"Authorization": f"token {os.environ['GITHUB_TOKEN']}"},
+    timeout=10
+)
+response.raise_for_status()    # Raise on 4xx/5xx
+data = response.json()         # Parse JSON response
+print(data["stargazers_count"])
 
-# Walk directory tree
-for root, dirs, files in os.walk("/var/log"):
-    for f in files:
-        print(os.path.join(root, f))
+# ─── POST ───
+response = requests.post(
+    "https://hooks.slack.com/services/xxx",
+    json={"text": "Deployment complete!"},   # Auto JSON-encode
+    timeout=10
+)
+
+# ─── Session (reuse connections + headers) ───
+session = requests.Session()
+session.headers.update({"Authorization": f"Bearer {token}"})
+
+for endpoint in ["/pods", "/services", "/deployments"]:
+    resp = session.get(f"{api_base}{endpoint}")
+    print(resp.json())
+
+# ─── Retry with backoff ───
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+session = requests.Session()
+retries = Retry(total=3, backoff_factor=1, status_forcelist=[500, 502, 503])
+session.mount("https://", HTTPAdapter(max_retries=retries))
 ```
 
-## REST APIs with requests
+---
+
+## 6. OOP for DevOps Scripts
+
 ```python
+from dataclasses import dataclass, field
+from typing import Optional
+
+# ─── Dataclass (modern, less boilerplate) ───
+@dataclass
+class Server:
+    hostname: str
+    ip: str
+    environment: str = "staging"
+    tags: list = field(default_factory=list)
+
+    @property
+    def fqdn(self) -> str:
+        return f"{self.hostname}.{self.environment}.internal"
+
+    def health_check(self) -> bool:
+        try:
+            resp = requests.get(f"http://{self.ip}:8080/health", timeout=5)
+            return resp.status_code == 200
+        except requests.RequestException:
+            return False
+
+# Usage
+server = Server("web1", "10.0.1.5", tags=["frontend", "critical"])
+print(server.fqdn)       # web1.staging.internal
+print(server.health_check())
+
+# ─── Traditional class ───
+class DeploymentManager:
+    def __init__(self, cluster: str, namespace: str = "default"):
+        self.cluster = cluster
+        self.namespace = namespace
+        self._client = None     # Lazy init
+
+    def deploy(self, image: str, replicas: int = 3) -> bool:
+        """Deploy image to cluster."""
+        cmd = ["kubectl", "--context", self.cluster,
+               "-n", self.namespace,
+               "set", "image", f"deployment/app", f"app={image}"]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        return result.returncode == 0
+
+    def __repr__(self):
+        return f"DeploymentManager(cluster={self.cluster!r})"
+```
+
+---
+
+## 7. Key Python Modules for DevOps
+
+```
+┌─── Standard Library (no install needed) ────────────────────┐
+│                                                              │
+│  os         → env vars, file ops, process info              │
+│  sys        → CLI args, exit, path                          │
+│  pathlib    → modern file path handling                      │
+│  subprocess → run shell commands                             │
+│  json       → parse/generate JSON                            │
+│  shutil     → copy/move/delete files/dirs                   │
+│  logging    → structured logging                             │
+│  argparse   → CLI argument parsing                           │
+│  re         → regex pattern matching                         │
+│  os.path    → legacy path operations                         │
+│  tempfile   → temporary files/directories                    │
+│  hashlib    → SHA256, MD5 checksums                          │
+│  socket     → network connections, hostname                  │
+│  http.server→ quick HTTP server                              │
+│  unittest   → testing framework                              │
+│  datetime   → date/time operations                           │
+│  threading  → parallel execution                             │
+│  concurrent.futures → thread/process pools                   │
+└──────────────────────────────────────────────────────────────┘
+
+┌─── Third-Party (pip install) ───────────────────────────────┐
+│                                                              │
+│  requests    → HTTP client                                  │
+│  pyyaml      → YAML parsing                                 │
+│  boto3       → AWS SDK                                      │
+│  azure-*     → Azure SDK                                    │
+│  kubernetes  → K8s Python client                            │
+│  docker      → Docker SDK                                   │
+│  paramiko    → SSH client                                   │
+│  click/typer → CLI frameworks                               │
+│  jinja2      → Template engine                              │
+│  pytest      → Testing framework                            │
+│  python-dotenv → Load .env files                            │
+└──────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 8. Logging (Not print!)
+
+```python
+import logging
+
+# ─── Setup ───
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
+logger = logging.getLogger("deploy")
+
+# ─── Usage ───
+logger.debug("Connecting to cluster...")        # Verbose detail
+logger.info("Deploying myapp:v2 to production") # Normal operation
+logger.warning("Retrying connection (2/3)")     # Potential issue
+logger.error("Deployment failed: timeout")      # Something broke
+logger.critical("Cluster unreachable!")          # System down
+
+# ─── Structured logging with extra data ───
+logger.info("Deploy complete", extra={"service": "web", "version": "v2", "duration": 45})
+```
+
+| Level | When to Use |
+|-------|------------|
+| DEBUG | Detailed diagnostic info (dev only) |
+| INFO | Normal operations ("deployed X to Y") |
+| WARNING | Something unexpected but handled |
+| ERROR | Something failed |
+| CRITICAL | System-level failure |
+
+---
+
+## 9. Virtual Environments
+
+```bash
+# ─── venv (standard library) ───
+python -m venv .venv
+source .venv/bin/activate      # Linux/Mac
+.venv\Scripts\Activate.ps1     # Windows PowerShell
+pip install -r requirements.txt
+deactivate
+
+# ─── requirements.txt ───
+requests==2.31.0               # Pinned version
+pyyaml>=6.0,<7.0               # Range
+boto3~=1.28                    # Compatible release (1.28.x)
+```
+
+```
+Why virtual environments?
+  Project A needs requests==2.28
+  Project B needs requests==2.31
+  Without venv → conflict!
+  With venv → each project has own isolated packages
+```
+
+---
+
+## 10. Common DevOps Scripts
+
+### Health Check Script
+
+```python
+#!/usr/bin/env python3
+"""Check health of services and alert on failures."""
 import requests
+import sys
 
-# GET
-resp = requests.get("https://api.github.com/repos/python/cpython")
-resp.raise_for_status()  # Raise on 4xx/5xx
-data = resp.json()
+SERVICES = {
+    "API": "https://api.example.com/health",
+    "Web": "https://www.example.com",
+    "DB": "https://db-proxy.example.com/status",
+}
 
-# POST with auth
-resp = requests.post(
-    "https://api.example.com/deploy",
-    json={"env": "prod", "version": "1.2.3"},
-    headers={"Authorization": f"Bearer {token}"},
-    timeout=30
-)
+def check_services():
+    failures = []
+    for name, url in SERVICES.items():
+        try:
+            resp = requests.get(url, timeout=5)
+            if resp.status_code != 200:
+                failures.append(f"{name}: HTTP {resp.status_code}")
+        except requests.RequestException as e:
+            failures.append(f"{name}: {e}")
+    return failures
 
-# Error handling pattern
-try:
-    resp = requests.get(url, timeout=10)
-    resp.raise_for_status()
-    return resp.json()
-except requests.ConnectionError:
-    print("Cannot connect")
-except requests.Timeout:
-    print("Request timed out")
-except requests.HTTPError as e:
-    print(f"HTTP error: {e.response.status_code}")
+if __name__ == "__main__":
+    failures = check_services()
+    if failures:
+        print("FAILURES:")
+        for f in failures:
+            print(f"  ✗ {f}")
+        sys.exit(1)
+    print("All services healthy ✓")
 ```
 
-## Classes (OOP Basics)
+### YAML Config Updater
+
 ```python
-class Pipeline:
-    def __init__(self, name: str, stages: list = None):
-        self.name = name
-        self.stages = stages or []
-        self.status = "pending"
+#!/usr/bin/env python3
+"""Update image tag in K8s deployment YAML."""
+import yaml
+import sys
 
-    def add_stage(self, stage: str):
-        self.stages.append(stage)
+def update_image(yaml_file, new_tag):
+    with open(yaml_file) as f:
+        manifest = yaml.safe_load(f)
 
-    def run(self) -> bool:
-        self.status = "running"
-        for stage in self.stages:
-            print(f"Running {stage}...")
-        self.status = "completed"
-        return True
+    containers = manifest["spec"]["template"]["spec"]["containers"]
+    for container in containers:
+        image = container["image"]
+        repo = image.rsplit(":", 1)[0]      # Split off old tag
+        container["image"] = f"{repo}:{new_tag}"
 
-    def __str__(self):
-        return f"Pipeline({self.name}, {len(self.stages)} stages)"
+    with open(yaml_file, "w") as f:
+        yaml.dump(manifest, f, default_flow_style=False)
 
-# Inheritance
-class CIPipeline(Pipeline):
-    def __init__(self, name, repo_url):
-        super().__init__(name)
-        self.repo_url = repo_url
+    print(f"Updated {yaml_file} to tag {new_tag}")
 
-    def run(self):
-        print(f"Cloning {self.repo_url}")
-        return super().run()
+if __name__ == "__main__":
+    update_image(sys.argv[1], sys.argv[2])
 ```
 
-## Exception Handling
+---
+
+## 11. Decorators & Context Managers
+
 ```python
-try:
-    result = risky_operation()
-except FileNotFoundError:
-    print("File not found")
-except (ValueError, TypeError) as e:
-    print(f"Bad value: {e}")
-except Exception as e:
-    print(f"Unexpected: {e}")
-    raise  # re-raise
-else:
-    print("Success!")  # runs if no exception
-finally:
-    cleanup()  # always runs
+import functools
+import time
+
+# ─── Decorator: retry with backoff ───
+def retry(max_retries=3, backoff=2):
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            for attempt in range(max_retries):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    if attempt == max_retries - 1:
+                        raise
+                    wait = backoff ** attempt
+                    print(f"Retry {attempt+1}/{max_retries} in {wait}s: {e}")
+                    time.sleep(wait)
+        return wrapper
+    return decorator
+
+@retry(max_retries=3, backoff=2)
+def deploy(service):
+    # May fail transiently
+    requests.post(f"https://deploy.example.com/{service}")
+
+# ─── Context manager ───
+from contextlib import contextmanager
+
+@contextmanager
+def timer(label):
+    start = time.time()
+    try:
+        yield
+    finally:
+        elapsed = time.time() - start
+        print(f"{label}: {elapsed:.2f}s")
+
+with timer("Deploy"):
+    deploy("web-service")
+# Output: Deploy: 3.45s
+```
+
+---
+
+## 12. Testing with pytest
+
+```python
+# test_deploy.py
+import pytest
+
+def test_health_check_success(mocker):
+    mock_resp = mocker.patch("requests.get")
+    mock_resp.return_value.status_code = 200
+
+    assert health_check("web1") is True
+
+def test_health_check_failure(mocker):
+    mock_resp = mocker.patch("requests.get")
+    mock_resp.side_effect = requests.ConnectionError("refused")
+
+    assert health_check("web1") is False
+
+@pytest.mark.parametrize("input,expected", [
+    ("v1.2.3", (1, 2, 3)),
+    ("v0.1.0", (0, 1, 0)),
+])
+def test_parse_version(input, expected):
+    assert parse_version(input) == expected
+
+@pytest.fixture
+def temp_config(tmp_path):
+    config = tmp_path / "config.yaml"
+    config.write_text("port: 8080\nenv: test\n")
+    return config
+```
+
+```bash
+pytest                          # Run all tests
+pytest -v                       # Verbose
+pytest -x                       # Stop on first failure
+pytest -k "test_deploy"         # Run matching tests
+pytest --cov=src                # Coverage report
 ```

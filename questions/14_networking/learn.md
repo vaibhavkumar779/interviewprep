@@ -1,151 +1,474 @@
-# Networking - LEARNING MATERIAL
+# Networking — Deep-Dive Learning Guide
 
 ---
 
-## OSI Model
+## 1. OSI Model & TCP/IP
 
-```mermaid
-graph TD
-    L7[Layer 7: Application<br/>HTTP, DNS, SSH, SMTP] --> L6[Layer 6: Presentation<br/>TLS/SSL, Encryption]
-    L6 --> L5[Layer 5: Session<br/>Session management]
-    L5 --> L4[Layer 4: Transport<br/>TCP, UDP - Ports]
-    L4 --> L3[Layer 3: Network<br/>IP, ICMP - Routing]
-    L3 --> L2[Layer 2: Data Link<br/>Ethernet, MAC - Switching]
-    L2 --> L1[Layer 1: Physical<br/>Cables, Signals]
+```
+┌─── OSI Model ───────────────┬─── TCP/IP Model ────────────┐
+│                              │                              │
+│  7. Application (HTTP, DNS)  │  Application                 │
+│  6. Presentation (SSL/TLS)   │  (HTTP, DNS, FTP, SSH, SMTP)│
+│  5. Session                  │                              │
+│  ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┤                              │
+│  4. Transport (TCP, UDP)     │  Transport (TCP, UDP)        │
+│  ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┤                              │
+│  3. Network (IP, ICMP)       │  Internet (IP, ICMP, ARP)   │
+│  ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┤                              │
+│  2. Data Link (Ethernet, MAC)│  Network Access              │
+│  1. Physical (cables, signals)│ (Ethernet, Wi-Fi)           │
+└──────────────────────────────┴──────────────────────────────┘
 ```
 
-## TCP vs UDP
+### What Happens When You Type `https://example.com`
+
+```
+Step 1: DNS Resolution
+  Browser → DNS resolver → Root NS → .com NS → example.com NS
+  Returns: 93.184.216.34
+
+Step 2: TCP Three-Way Handshake
+  Client ──► SYN ──────────────► Server
+  Client ◄── SYN-ACK ◄────────── Server
+  Client ──► ACK ──────────────► Server
+  Connection established!
+
+Step 3: TLS Handshake (HTTPS)
+  Client ──► ClientHello (supported ciphers) ──► Server
+  Client ◄── ServerHello + Certificate ◄──────── Server
+  Client verifies certificate (trust chain)
+  Client ──► Key exchange ──► Server
+  Both derive session keys
+  Encrypted channel ready!
+
+Step 4: HTTP Request
+  GET / HTTP/1.1
+  Host: example.com
+
+Step 5: Server responds
+  HTTP/1.1 200 OK
+  Content-Type: text/html
+  (page content)
+
+Step 6: TCP Four-Way Teardown
+  Client ──► FIN ──► Server
+  Client ◄── ACK ◄── Server
+  Client ◄── FIN ◄── Server
+  Client ──► ACK ──► Server
+```
+
+---
+
+## 2. TCP vs UDP
+
+```
+┌─── TCP (Transmission Control Protocol) ────────────────────┐
+│  Connection-oriented (3-way handshake first)                │
+│  Reliable (ACKs, retransmission, ordering)                  │
+│  Flow control (sliding window)                              │
+│  Slower but guaranteed delivery                             │
+│                                                              │
+│  Used by: HTTP, HTTPS, SSH, FTP, SMTP, databases           │
+│  "I need every byte to arrive in order"                    │
+└──────────────────────────────────────────────────────────────┘
+
+┌─── UDP (User Datagram Protocol) ───────────────────────────┐
+│  Connectionless (just send packets)                         │
+│  Unreliable (no ACKs, no retransmission)                   │
+│  No ordering guarantee                                      │
+│  Fast, low overhead                                         │
+│                                                              │
+│  Used by: DNS, DHCP, VoIP, video streaming, gaming         │
+│  "Speed matters more than losing a few packets"            │
+└──────────────────────────────────────────────────────────────┘
+```
 
 | Feature | TCP | UDP |
-|---|---|---|
-| Connection | Connection-oriented (3-way handshake) | Connectionless |
-| Reliability | Guaranteed delivery, ordering | Best effort |
-| Speed | Slower (overhead) | Faster |
-| Use cases | HTTP, SSH, FTP, DB | DNS, streaming, VoIP, gaming |
+|---------|-----|-----|
+| Connection | Required (handshake) | None |
+| Reliability | Guaranteed (ACKs) | Best-effort |
+| Ordering | Yes | No |
+| Speed | Slower | Faster |
+| Header size | 20 bytes | 8 bytes |
+| Use case | Web, email, file transfer | DNS, streaming, gaming |
 
-## DNS Resolution
+---
 
-```mermaid
-graph LR
-    USER[Browser: app.example.com] --> LOCAL[Local DNS Cache]
-    LOCAL -->|Miss| RESOLVER[DNS Resolver<br/>ISP / 8.8.8.8]
-    RESOLVER -->|Miss| ROOT[Root DNS<br/>. → .com]
-    ROOT --> TLD[TLD DNS<br/>.com → example.com]
-    TLD --> AUTH[Authoritative DNS<br/>example.com → 93.184.216.34]
-    AUTH -->|A Record| RESOLVER
-    RESOLVER --> USER
+## 3. IP Addressing & Subnetting
+
+### IPv4 Address
+
+```
+IP Address:    192.168.1.100
+Subnet Mask:   255.255.255.0    or /24 (CIDR notation)
+
+  192.168.1.100 = 11000000.10101000.00000001.01100100
+  255.255.255.0 = 11111111.11111111.11111111.00000000
+                  ├── Network (24 bits) ──┤├ Host(8)┤
+
+  Network:   192.168.1.0     (first address)
+  Broadcast: 192.168.1.255   (last address)
+  Usable:    192.168.1.1 - 192.168.1.254  (254 hosts)
+```
+
+### CIDR Cheat Sheet
+
+```
+/32  = 1 IP        (single host)
+/31  = 2 IPs       (point-to-point link)
+/30  = 4 IPs       (2 usable — smallest subnet)
+/28  = 16 IPs      (14 usable)
+/24  = 256 IPs     (254 usable — "Class C")
+/16  = 65,536 IPs  (65,534 usable — "Class B")
+/8   = 16.7M IPs   ("Class A")
+```
+
+### Private IP Ranges (RFC 1918)
+
+```
+10.0.0.0/8          10.0.0.0 - 10.255.255.255      (huge — cloud VNets)
+172.16.0.0/12       172.16.0.0 - 172.31.255.255     (medium)
+192.168.0.0/16      192.168.0.0 - 192.168.255.255   (home/small networks)
+
+These are NOT routable on the internet.
+NAT translates private → public IP for internet access.
+```
+
+---
+
+## 4. DNS (Domain Name System)
+
+```
+Browser: "What's the IP of app.example.com?"
+
+┌──────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐
+│Client│────►│ Recursive│────►│Root (.com)│────►│Authority.│
+│      │     │ Resolver │     │ NS       │     │ NS       │
+│      │     │ (ISP or  │     │          │     │(example  │
+│      │     │  8.8.8.8)│     │          │     │ .com)    │
+│      │◄────│          │◄────│          │◄────│          │
+│      │     │ Caches!  │     │          │     │ Returns: │
+│      │     │          │     │          │     │93.184.216│
+└──────┘     └──────────┘     └──────────┘     └──────────┘
 ```
 
 ### DNS Record Types
 
-| Record | Purpose | Example |
-|---|---|---|
-| **A** | Domain → IPv4 | `app.example.com → 93.184.216.34` |
-| **AAAA** | Domain → IPv6 | `app.example.com → 2606:2800:...` |
-| **CNAME** | Alias → another domain | `www.example.com → app.example.com` |
+| Type | Purpose | Example |
+|------|---------|---------|
+| **A** | Domain → IPv4 | `example.com → 93.184.216.34` |
+| **AAAA** | Domain → IPv6 | `example.com → 2606:2800:220:1:...` |
+| **CNAME** | Alias to another domain | `www.example.com → example.com` |
 | **MX** | Mail server | `example.com → mail.example.com` |
-| **NS** | Nameserver | `example.com → ns1.example.com` |
-| **TXT** | Arbitrary text | SPF, DKIM, domain verification |
-| **SRV** | Service discovery | `_http._tcp.example.com` |
+| **NS** | Nameserver delegation | `example.com → ns1.provider.com` |
+| **TXT** | Text record (SPF, DKIM, verification) | `v=spf1 include:_spf.google.com` |
+| **SRV** | Service discovery (port + host) | `_http._tcp.example.com` |
+| **PTR** | Reverse DNS (IP → domain) | `34.216.184.93 → example.com` |
 
-## HTTP/HTTPS
-
-```mermaid
-sequenceDiagram
-    Client->>Server: TCP 3-way handshake (SYN, SYN-ACK, ACK)
-    Client->>Server: TLS Handshake (if HTTPS)
-    Client->>Server: GET /api/users HTTP/1.1
-    Server->>Client: 200 OK + JSON body
-    Client->>Server: POST /api/users (with body)
-    Server->>Client: 201 Created
+```bash
+# DNS lookups
+nslookup example.com
+dig example.com A              # Detailed A record query
+dig example.com MX             # Mail server
+dig +short example.com         # Just the IP
+host example.com               # Simple lookup
 ```
+
+---
+
+## 5. HTTP/HTTPS
+
+### HTTP Methods
+
+| Method | Purpose | Idempotent? | Body? |
+|--------|---------|-------------|-------|
+| GET | Read resource | Yes | No |
+| POST | Create resource | No | Yes |
+| PUT | Replace resource | Yes | Yes |
+| PATCH | Partial update | No | Yes |
+| DELETE | Remove resource | Yes | No |
+| HEAD | GET without body | Yes | No |
+| OPTIONS | Supported methods | Yes | No |
 
 ### HTTP Status Codes
 
-| Code | Meaning | Common Scenario |
-|---|---|---|
-| **200** | OK | Successful GET |
-| **201** | Created | Successful POST |
-| **301** | Moved Permanently | URL redirect (cached) |
-| **302** | Found | Temporary redirect |
-| **400** | Bad Request | Invalid input |
-| **401** | Unauthorized | Missing/invalid auth |
-| **403** | Forbidden | No permission |
-| **404** | Not Found | Wrong URL |
-| **500** | Internal Server Error | Server bug |
-| **502** | Bad Gateway | Upstream server down |
-| **503** | Service Unavailable | Server overloaded |
-| **504** | Gateway Timeout | Upstream timed out |
+```
+1xx — Informational
+2xx — Success
+  200 OK               — request succeeded
+  201 Created           — resource created (POST)
+  204 No Content        — success, no body (DELETE)
+3xx — Redirection
+  301 Moved Permanently — use new URL forever
+  302 Found             — temporary redirect
+  304 Not Modified      — use cached version
+4xx — Client Error
+  400 Bad Request       — invalid input
+  401 Unauthorized      — not authenticated
+  403 Forbidden         — authenticated but not allowed
+  404 Not Found         — resource doesn't exist
+  429 Too Many Requests — rate limited
+5xx — Server Error
+  500 Internal Server Error — generic server failure
+  502 Bad Gateway       — upstream server error
+  503 Service Unavailable — server overloaded/maintenance
+  504 Gateway Timeout   — upstream didn't respond in time
+```
 
-## Essential Network Commands
+### HTTPS & TLS
+
+```
+HTTPS = HTTP + TLS (Transport Layer Security)
+
+TLS provides:
+  1. Encryption    — data can't be read in transit
+  2. Authentication — server proves identity via certificate
+  3. Integrity     — data can't be tampered with
+
+Certificate Chain:
+  Root CA (trusted by browsers)
+    └── Intermediate CA
+        └── Server Certificate (your domain)
+
+Let's Encrypt: Free, automated TLS certificates (90-day renewal)
+```
+
+---
+
+## 6. Load Balancing
+
+```
+┌─── Load Balancer ──────────────────────────────────────────┐
+│                                                             │
+│  Client ──► Load Balancer ──► Backend Servers               │
+│                  │                                          │
+│          ┌───────┼───────┐                                 │
+│          │       │       │                                 │
+│       Server1 Server2 Server3                              │
+│                                                             │
+│  L4 (Transport): Routes by IP:port (fast, no content aware)│
+│  L7 (Application): Routes by URL, headers, cookies (smart) │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Algorithms
+
+| Algorithm | Description | Use Case |
+|-----------|------------|----------|
+| Round Robin | Sequential rotation | Equal servers |
+| Weighted Round Robin | More traffic to stronger servers | Mixed hardware |
+| Least Connections | Route to server with fewest connections | Varying request times |
+| IP Hash | Same client IP → same server | Session stickiness |
+| URL Hash | Same URL → same server | Caching |
+
+### L4 vs L7
+
+| Aspect | L4 (TCP/UDP) | L7 (HTTP/HTTPS) |
+|--------|-------------|-----------------|
+| Layer | Transport | Application |
+| Speed | Faster | Slower (inspects content) |
+| SSL termination | No | Yes |
+| Content routing | No | Yes (URL, headers, cookies) |
+| Examples | AWS NLB, Azure LB | AWS ALB, nginx, HAProxy, Azure App GW |
+
+---
+
+## 7. Firewalls & Security Groups
+
+```
+┌─── Firewall Types ─────────────────────────────────────────┐
+│                                                             │
+│  Stateless: Checks each packet independently               │
+│    (AWS NACL, basic iptables)                              │
+│    Must allow BOTH inbound AND outbound rules              │
+│                                                             │
+│  Stateful: Tracks connections                               │
+│    (AWS Security Group, Azure NSG, iptables with conntrack)│
+│    Allow inbound → return traffic automatically allowed    │
+│                                                             │
+│  WAF (Web Application Firewall): L7                        │
+│    Inspects HTTP content                                    │
+│    Blocks: SQL injection, XSS, bot traffic                 │
+│    Tools: AWS WAF, Azure WAF, Cloudflare, ModSecurity      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### iptables Basics
 
 ```bash
-# DNS lookup
-nslookup example.com
-dig example.com A
-dig +short example.com
+# Default policy
+iptables -P INPUT DROP         # Drop everything by default
+iptables -P FORWARD DROP
+iptables -P OUTPUT ACCEPT      # Allow outbound
 
-# Connectivity
-ping -c 4 example.com              # ICMP ping
-traceroute example.com              # Route path (tracert on Windows)
-curl -v https://api.example.com     # HTTP request with details
-curl -I https://example.com         # Headers only
+# Allow specific
+iptables -A INPUT -p tcp --dport 22 -j ACCEPT    # SSH
+iptables -A INPUT -p tcp --dport 80 -j ACCEPT    # HTTP
+iptables -A INPUT -p tcp --dport 443 -j ACCEPT   # HTTPS
+iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT  # Return traffic
 
-# Ports and connections
-ss -tlnp                            # Listening ports (Linux)
-netstat -an | grep LISTEN           # Listening ports
-nc -zv host 80                      # Test port connectivity
-
-# Network config
-ip addr show                        # Show IP addresses
-ip route show                       # Show routing table
-cat /etc/resolv.conf                # DNS config
+# List rules
+iptables -L -n -v
 ```
 
-## Load Balancing
+---
 
-```mermaid
-graph TD
-    CLIENT[Client] --> LB[Load Balancer]
-    LB -->|Round Robin| S1[Server 1]
-    LB -->|Least Connections| S2[Server 2]
-    LB -->|IP Hash| S3[Server 3]
+## 8. NAT, VPN, Proxy
+
+### NAT (Network Address Translation)
+
+```
+Private Network                    Internet
+192.168.1.0/24
+                     ┌─────────┐
+[192.168.1.5] ─────►│  NAT    │──► [203.0.113.1] ──► Internet
+[192.168.1.6] ─────►│  Router │──► [203.0.113.1]
+[192.168.1.7] ─────►│         │──► [203.0.113.1]
+                     └─────────┘
+                     Many private IPs → one public IP
+                     Tracks via port numbers (PAT)
 ```
 
-| Algorithm | How | Use Case |
-|---|---|---|
-| Round Robin | Sequential distribution | Equal servers |
-| Least Connections | Send to least busy | Varying request times |
-| IP Hash | Same client → same server | Session affinity |
-| Weighted | More traffic to stronger servers | Mixed hardware |
+### VPN (Virtual Private Network)
 
-## TLS/SSL
+```
+┌─── Site-to-Site VPN ─────────────────────────────────────┐
+│                                                           │
+│  Office Network ◄═══ Encrypted Tunnel ═══► Cloud VNet    │
+│  10.0.0.0/16                                10.1.0.0/16  │
+│                                                           │
+│  Devices on both networks can communicate as if local    │
+└───────────────────────────────────────────────────────────┘
 
-```mermaid
-sequenceDiagram
-    Client->>Server: ClientHello (supported ciphers)
-    Server->>Client: ServerHello (chosen cipher) + Certificate
-    Client->>Client: Verify certificate with CA
-    Client->>Server: Key exchange (encrypted with server's public key)
-    Note over Client,Server: Both derive session key
-    Client->>Server: Encrypted application data
-    Server->>Client: Encrypted response
+┌─── Client VPN ───────────────────────────────────────────┐
+│                                                           │
+│  Laptop ◄═══ Encrypted Tunnel ═══► Corporate Network     │
+│  (remote worker)                                          │
+│  Gets an IP on the corporate network                     │
+└───────────────────────────────────────────────────────────┘
 ```
 
-## Proxy vs Reverse Proxy
+### Forward vs Reverse Proxy
 
-```mermaid
-graph LR
-    subgraph ForwardProxy [Forward Proxy]
-        C1[Client] --> FP[Proxy<br/>Squid] --> INT[Internet<br/>Servers]
-    end
-    subgraph ReverseProxy [Reverse Proxy]
-        INT2[Internet<br/>Clients] --> RP[Reverse Proxy<br/>Nginx / HAProxy] --> S1[Server 1]
-        RP --> S2[Server 2]
-    end
+```
+Forward Proxy (client-side):
+  Client ──► Proxy ──► Internet
+  Client hides behind proxy
+  Use: content filtering, caching, bypass geo-blocks
+
+Reverse Proxy (server-side):
+  Internet ──► Proxy ──► Backend Servers
+  Servers hide behind proxy
+  Use: load balancing, SSL termination, caching, WAF
+  Tools: nginx, HAProxy, Traefik, Envoy
 ```
 
-| Type | Sits in front of | Purpose |
-|---|---|---|
-| Forward Proxy | Clients | Anonymity, caching, filtering |
-| Reverse Proxy | Servers | Load balancing, SSL termination, caching |
+---
+
+## 9. Container Networking
+
+### Docker Networking
+
+```
+Default Bridge:
+  Container A (172.17.0.2) ──┐
+  Container B (172.17.0.3) ──┤── docker0 bridge ── NAT ── Host
+  No DNS resolution between containers!
+
+User-Defined Bridge:
+  Container A ──┐
+  Container B ──┤── mynet bridge ── NAT ── Host
+  DNS resolution by container name! ✅
+```
+
+### Kubernetes Networking
+
+```
+K8s Network Model:
+  1. Every Pod gets its own IP
+  2. All Pods can communicate without NAT
+  3. Flat network — no port mapping needed
+
+  Pod A (10.244.1.5) ──── CNI Plugin ──── Pod B (10.244.2.3)
+        (Node 1)          (Calico/Cilium)       (Node 2)
+                          VXLAN/BGP overlay
+
+  Service (10.96.0.10) = stable IP for group of Pods
+    kube-proxy creates iptables/IPVS rules to route traffic
+```
+
+---
+
+## 10. Network Troubleshooting Commands
+
+```bash
+# ─── Connectivity ───
+ping -c 4 host                # ICMP echo (is host reachable?)
+traceroute host               # Path packets take (where do they stop?)
+mtr host                      # Combined ping + traceroute (live)
+curl -I https://host          # HTTP headers (is web server running?)
+wget https://host/file        # Download file
+
+# ─── DNS ───
+nslookup domain               # Basic DNS lookup
+dig domain                    # Detailed DNS query
+dig +trace domain             # Full DNS resolution path
+cat /etc/resolv.conf          # DNS server config
+
+# ─── Ports & Connections ───
+ss -tulnp                     # All listening ports with processes
+netstat -tulnp                # Legacy equivalent
+lsof -i :8080                 # What process is using port 8080
+nc -zv host 443               # Test if port is open
+telnet host 80                # Test TCP connection
+
+# ─── Network Config ───
+ip addr show                  # Interfaces and IPs
+ip route show                 # Routing table
+ip neigh show                 # ARP table (IP → MAC)
+
+# ─── Packet Capture ───
+tcpdump -i eth0 port 80       # Capture HTTP traffic
+tcpdump -i any host 10.0.1.5  # Traffic to/from specific host
+tcpdump -i eth0 -w capture.pcap  # Save to file (open in Wireshark)
+
+# ─── Bandwidth ───
+iftop                         # Live bandwidth by connection
+nethogs                       # Bandwidth per process
+```
+
+---
+
+## 11. Cloud Networking Concepts
+
+```
+┌─── VNet/VPC ────────────────────────────────────────────────┐
+│  Virtual Private Cloud — your isolated network in the cloud │
+│                                                              │
+│  ┌──── Subnet: Public (10.0.1.0/24) ─────────────────┐    │
+│  │  Has Internet Gateway (route to 0.0.0.0/0)         │    │
+│  │  ┌──────┐  ┌──────┐                                │    │
+│  │  │ LB   │  │ NAT  │                                │    │
+│  │  │      │  │ GW   │                                │    │
+│  │  └──────┘  └──────┘                                │    │
+│  └─────────────────────────────────────────────────────┘    │
+│                                                              │
+│  ┌──── Subnet: Private (10.0.2.0/24) ────────────────┐    │
+│  │  No direct internet access (goes through NAT GW)   │    │
+│  │  ┌──────┐  ┌──────┐  ┌──────┐                     │    │
+│  │  │App VM│  │App VM│  │App VM│                     │    │
+│  │  └──────┘  └──────┘  └──────┘                     │    │
+│  └─────────────────────────────────────────────────────┘    │
+│                                                              │
+│  ┌──── Subnet: Data (10.0.3.0/24) ───────────────────┐    │
+│  │  No internet access at all                          │    │
+│  │  ┌──────┐  ┌──────┐                                │    │
+│  │  │  DB  │  │Cache │                                │    │
+│  │  └──────┘  └──────┘                                │    │
+│  └─────────────────────────────────────────────────────┘    │
+│                                                              │
+│  NSG rules control traffic between subnets                  │
+│  Route tables define how traffic flows                      │
+│  VNet Peering connects VNets (no internet traversal)        │
+└──────────────────────────────────────────────────────────────┘
+```

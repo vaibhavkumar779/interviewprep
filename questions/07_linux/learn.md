@@ -1,298 +1,522 @@
-# Linux - LEARNING MATERIAL (YOUR CRITICAL GAP)
+# Linux Administration — Deep-Dive Learning Guide
 
 ---
 
-## Linux File System Hierarchy
-
-```mermaid
-graph TD
-    Root["/"] --> bin["/bin<br/>Essential binaries"]
-    Root --> etc["/etc<br/>Config files"]
-    Root --> home["/home<br/>User directories"]
-    Root --> var["/var<br/>Logs, mail, spool"]
-    Root --> tmp["/tmp<br/>Temporary files"]
-    Root --> usr["/usr<br/>User programs"]
-    Root --> opt["/opt<br/>Optional software"]
-    Root --> proc["/proc<br/>Process info (virtual)"]
-    Root --> dev["/dev<br/>Device files"]
-    Root --> mnt["/mnt<br/>Mount points"]
-    var --> varlog["/var/log<br/>System logs"]
-    usr --> usrbin["/usr/bin<br/>User binaries"]
-    usr --> usrlib["/usr/lib<br/>Libraries"]
-```
-
----
-
-## File Permissions
+## 1. Linux Architecture
 
 ```
--rwxr-xr--  1  user  group  4096  May 24 10:00  file.txt
-│├─┤├─┤├─┤
-│ │   │  │
-│ │   │  └── Others: r-- (4) read only
-│ │   └───── Group:  r-x (5) read + execute
-│ └───────── Owner:  rwx (7) read + write + execute
-└─────────── Type:   - (file), d (dir), l (link)
-```
-
-| Octal | Permission | Meaning |
-|---|---|---|
-| 7 | rwx | Read + Write + Execute |
-| 6 | rw- | Read + Write |
-| 5 | r-x | Read + Execute |
-| 4 | r-- | Read only |
-| 3 | -wx | Write + Execute |
-| 2 | -w- | Write only |
-| 1 | --x | Execute only |
-| 0 | --- | None |
-
-`chmod 755` = Owner: rwx, Group: r-x, Others: r-x
-
----
-
-## grep / awk / sed Cheat Sheet
-
-### grep — Search patterns in files
-```bash
-grep "pattern" file              # basic search
-grep -i "pattern" file           # case-insensitive
-grep -r "pattern" ./dir/         # recursive in directory
-grep -n "pattern" file           # show line numbers
-grep -c "pattern" file           # count matches
-grep -v "pattern" file           # invert (exclude matches)
-grep -l "pattern" *.log          # list filenames only
-grep -E "pat1|pat2" file         # extended regex (OR)
-grep -A3 -B3 "error" file       # 3 lines After and Before
-grep --include="*.py" -r "TODO"  # search specific file types
-```
-
-### awk — Column-based text processing
-```bash
-# Print specific columns (space-separated by default)
-awk '{print $1, $3}' file
-
-# Custom delimiter
-awk -F: '{print $1, $7}' /etc/passwd    # colon-separated
-
-# Conditional
-awk '$3 > 100 {print $1, $3}' file      # if column 3 > 100
-
-# Sum a column
-awk '{sum += $3} END {print sum}' file
-
-# Count lines matching pattern
-awk '/ERROR/ {count++} END {print count}' file
-
-# Format output
-awk '{printf "%-20s %10d\n", $1, $3}' file
-
-# Multiple conditions
-awk '$1 == "GET" && $9 >= 500 {print}' access.log
-```
-
-### sed — Stream editor (find & replace)
-```bash
-# Replace first occurrence per line
-sed 's/old/new/' file
-
-# Replace ALL occurrences
-sed 's/old/new/g' file
-
-# In-place edit
-sed -i 's/old/new/g' file
-
-# Delete lines matching pattern
-sed '/DEBUG/d' file
-
-# Print specific lines
-sed -n '10,20p' file
-
-# Insert line before match
-sed '/pattern/i\New line above' file
-
-# Insert line after match
-sed '/pattern/a\New line below' file
-
-# Multiple operations
-sed -e 's/foo/bar/g' -e '/baz/d' file
+┌─────────────────────────────────────────────────────────────┐
+│                    User Space                                │
+│  ┌────────────┐  ┌────────────┐  ┌────────────┐            │
+│  │ User Apps  │  │  Daemons   │  │   Shell    │            │
+│  │ (nginx,    │  │ (sshd,     │  │ (bash,     │            │
+│  │  python)   │  │  systemd)  │  │  zsh)      │            │
+│  └─────┬──────┘  └─────┬──────┘  └─────┬──────┘            │
+│        │               │               │                     │
+│  ┌─────▼───────────────▼───────────────▼──────┐             │
+│  │          GNU C Library (glibc)              │             │
+│  │          System Call Interface              │             │
+│  └─────────────────────┬──────────────────────┘             │
+└────────────────────────┼────────────────────────────────────┘
+                         │ system calls (open, read, write, fork, exec)
+┌────────────────────────▼────────────────────────────────────┐
+│                    Kernel Space                              │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────────┐ │
+│  │ Process  │  │ Memory   │  │ File     │  │ Network    │ │
+│  │ Mgmt     │  │ Mgmt     │  │ Systems  │  │ Stack      │ │
+│  │ (sched)  │  │ (virtual)│  │ (VFS)    │  │ (TCP/IP)   │ │
+│  └──────────┘  └──────────┘  └──────────┘  └────────────┘ │
+│  ┌──────────────────────────────────────────────────────┐  │
+│  │                Device Drivers                         │  │
+│  └──────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────┘
+                         │
+┌────────────────────────▼────────────────────────────────────┐
+│                    Hardware                                  │
+│  CPU    RAM    Disk    NIC    GPU                            │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Process Management
+## 2. Filesystem Hierarchy
 
-```mermaid
-graph TD
-    subgraph Signals
-        S15[SIGTERM - 15<br/>Graceful shutdown<br/>kill PID]
-        S9[SIGKILL - 9<br/>Force kill<br/>kill -9 PID]
-        S1[SIGHUP - 1<br/>Reload config<br/>kill -1 PID]
-        S2[SIGINT - 2<br/>Ctrl+C interrupt]
-    end
 ```
-
-### Key Commands
-```bash
-# View processes
-ps aux                           # all processes, detailed
-ps aux | grep nginx              # find specific
-pgrep -la nginx                  # search by name
-top                              # real-time (q to quit)
-htop                             # better real-time
-
-# Kill processes
-kill PID                         # SIGTERM (graceful)
-kill -9 PID                      # SIGKILL (force)
-killall nginx                    # by name
-pkill -f "python app.py"        # by pattern
-
-# Background processes
-command &                        # run in background
-nohup command &                  # survive terminal close
-jobs                             # list bg jobs
-fg %1                           # bring to foreground
-disown %1                       # detach from terminal
-
-# Find process on port
-lsof -i :8080                   # what's on port 8080
-ss -tlnp | grep 8080            # modern alternative
-fuser 8080/tcp                  # find PID on port
+/
+├── bin/       → Essential user binaries (ls, cp, cat) — symlink to /usr/bin
+├── sbin/      → System binaries (fdisk, iptables) — symlink to /usr/sbin
+├── etc/       → Configuration files (nginx.conf, fstab, passwd)
+├── home/      → User home directories (/home/vaibhav)
+├── root/      → Root user's home
+├── var/       → Variable data
+│   ├── log/   → Log files (syslog, auth.log)
+│   ├── lib/   → State data (databases, package info)
+│   └── run/   → Runtime data (PID files, sockets)
+├── tmp/       → Temporary files (cleared on reboot)
+├── usr/       → User programs and data
+│   ├── bin/   → User binaries
+│   ├── lib/   → Libraries
+│   ├── local/ → Locally installed software
+│   └── share/ → Shared data (man pages, docs)
+├── opt/       → Third-party software (/opt/myapp)
+├── proc/      → Virtual filesystem — process info (live kernel data)
+├── sys/       → Virtual filesystem — device/kernel info
+├── dev/       → Device files (/dev/sda, /dev/null, /dev/tty)
+├── mnt/       → Temporary mount points
+├── media/     → Removable media mount points
+└── boot/      → Kernel, bootloader (vmlinuz, initramfs, grub)
 ```
 
 ---
 
-## Networking Commands
+## 3. File Permissions
+
+```
+-rwxr-xr-- 1 vaibhav devops 4096 May 25 10:00 deploy.sh
+│├──┤├──┤├──┤  │       │
+││   │    │    │       └── Group
+││   │    │    └── Owner
+││   │    └── Others:  r-- (read only)
+││   └── Group:   r-x (read + execute)
+│└── Owner:   rwx (read + write + execute)
+└── File type: - (file), d (dir), l (link), b (block), c (char)
+```
+
+### Numeric Permissions
+
+```
+r = 4    w = 2    x = 1
+
+rwx = 4+2+1 = 7
+r-x = 4+0+1 = 5
+r-- = 4+0+0 = 4
+
+chmod 755 script.sh   →  rwxr-xr-x (owner: all, group+others: read+exec)
+chmod 644 config.txt  →  rw-r--r-- (owner: read+write, others: read)
+chmod 600 secret.key  →  rw------- (owner only)
+chmod 777 file        →  NEVER DO THIS IN PRODUCTION!
+```
+
+### Special Permissions
+
+```
+SUID (4):  chmod u+s /usr/bin/passwd   →  runs as file owner (not caller)
+           -rwsr-xr-x  (s in owner exec position)
+           Use case: passwd command needs root to write /etc/shadow
+
+SGID (2):  chmod g+s /shared/dir      →  new files inherit group
+           drwxrwsr-x  (s in group exec position)
+           Use case: shared team directories
+
+Sticky(1): chmod +t /tmp               →  only owner can delete own files
+           drwxrwxrwt  (t in others exec position)
+           Use case: /tmp — everyone writes, nobody deletes others' files
+```
+
+### Ownership
 
 ```bash
-# IP and interfaces
-ip addr show                     # show IP addresses
-ip route show                    # routing table
-hostname -I                      # quick IP
-
-# Connectivity
-ping -c 4 host                   # test connectivity
-traceroute host                  # trace path
-mtr host                         # combined ping + traceroute
-
-# DNS
-dig example.com                  # detailed DNS lookup
-nslookup example.com             # simple DNS lookup
-host example.com                 # simplest DNS lookup
-
-# Ports and connections
-ss -tlnp                         # TCP listening ports
-ss -tunap                        # all connections
-netstat -tulnp                   # legacy (same info)
-nc -zv host 443                  # test if port open
-
-# HTTP
-curl -v https://api.example.com  # verbose request
-curl -o file.txt URL             # download to file
-curl -X POST -d '{"k":"v"}' -H "Content-Type: application/json" URL
-wget URL                         # download file
-
-# Packet capture
-tcpdump -i eth0 port 80          # capture HTTP traffic
-tcpdump -i any -n host 10.0.0.5  # traffic to/from host
+chown user:group file       # Change owner and group
+chown -R user:group dir/    # Recursive
+chgrp devops file           # Change group only
 ```
 
 ---
 
-## systemd & Services
+## 4. Process Management
 
-```mermaid
-graph LR
-    subgraph Commands
-        START[systemctl start svc]
-        STOP[systemctl stop svc]
-        RESTART[systemctl restart svc]
-        ENABLE[systemctl enable svc]
-        STATUS[systemctl status svc]
-        LOGS[journalctl -u svc -f]
-    end
+```
+┌─── Process States ──────────────────────────────────────────┐
+│                                                              │
+│  Running (R) ←──→ Sleeping (S/D)                            │
+│      │                │                                      │
+│      └────────────────┼──► Stopped (T) ← Ctrl+Z / kill -STOP│
+│                       │                                      │
+│                       └──► Zombie (Z) — finished but parent  │
+│                              hasn't collected exit code       │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-### Unit File Example (`/etc/systemd/system/myapp.service`)
-```ini
+```bash
+# ─── Viewing processes ───
+ps aux                          # All processes, full detail
+ps -ef                          # All processes, full format
+ps aux --sort=-%mem | head -10  # Top 10 by memory
+top / htop                      # Real-time monitor
+pstree -p                       # Process tree with PIDs
+
+# ─── Background / Foreground ───
+command &                       # Run in background
+Ctrl+Z                         # Suspend current process
+bg                              # Resume in background
+fg                              # Bring to foreground
+jobs                            # List background jobs
+nohup command &                 # Survives terminal close
+disown                          # Detach from terminal
+
+# ─── Signals ───
+kill PID                        # SIGTERM (15) — polite shutdown
+kill -9 PID                     # SIGKILL (9) — force kill (no cleanup!)
+kill -HUP PID                   # SIGHUP (1) — reload config (nginx, sshd)
+kill -USR1 PID                  # User-defined signal
+killall nginx                   # Kill by name
+pkill -f "python deploy"       # Kill by command pattern
+```
+
+### Key Signals
+
+| Signal | Number | Default | Use Case |
+|--------|--------|---------|----------|
+| SIGTERM | 15 | Terminate | Graceful shutdown (default kill) |
+| SIGKILL | 9 | Kill | Force kill (cannot be caught!) |
+| SIGHUP | 1 | Terminate | Reload config (daemons) |
+| SIGINT | 2 | Terminate | Ctrl+C |
+| SIGSTOP | 19 | Stop | Pause process (cannot be caught!) |
+| SIGCONT | 18 | Continue | Resume paused process |
+| SIGUSR1 | 10 | Terminate | Custom: log rotation, debug toggle |
+
+---
+
+## 5. systemd — Service Management
+
+```
+┌─── systemd (PID 1) ──────────────────────────────────────────┐
+│                                                               │
+│  The init system — first process, manages ALL services       │
+│                                                               │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐    │
+│  │ sshd     │  │ nginx    │  │ docker   │  │ cron     │    │
+│  │ .service │  │ .service │  │ .service │  │ .service │    │
+│  └──────────┘  └──────────┘  └──────────┘  └──────────┘    │
+│                                                               │
+│  Unit types: .service, .socket, .timer, .mount, .target      │
+└───────────────────────────────────────────────────────────────┘
+```
+
+```bash
+# ─── Service management ───
+systemctl start nginx          # Start now
+systemctl stop nginx           # Stop now
+systemctl restart nginx        # Stop + Start
+systemctl reload nginx         # Reload config (no downtime)
+systemctl status nginx         # Current status + recent logs
+systemctl enable nginx         # Start on boot
+systemctl disable nginx        # Don't start on boot
+systemctl is-active nginx      # Check if running
+systemctl is-enabled nginx     # Check if starts on boot
+
+# ─── Listing ───
+systemctl list-units --type=service              # Running services
+systemctl list-units --type=service --state=failed  # Failed services
+systemctl list-unit-files --type=service         # All installed services
+
+# ─── Custom service unit ───
+# /etc/systemd/system/myapp.service
 [Unit]
-Description=My Python App
+Description=My Application
 After=network.target
+Requires=postgresql.service
 
 [Service]
 Type=simple
 User=appuser
 WorkingDirectory=/opt/myapp
-ExecStart=/usr/bin/python3 app.py
+ExecStart=/opt/myapp/bin/server --port 8080
+ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=5
-Environment=PORT=8080
+StandardOutput=journal
+StandardError=journal
+Environment=NODE_ENV=production
 
 [Install]
 WantedBy=multi-user.target
 ```
 
+```bash
+systemctl daemon-reload          # After editing unit files
+journalctl -u myapp -f           # Follow logs
+journalctl -u myapp --since "1 hour ago"
+```
+
 ---
 
-## Disk & Storage
+## 6. Package Management
+
+| Distro | Package Manager | Commands |
+|--------|----------------|----------|
+| Ubuntu/Debian | apt | `apt update`, `apt install`, `apt remove` |
+| RHEL/CentOS | yum/dnf | `dnf install`, `dnf update`, `dnf remove` |
+| Alpine | apk | `apk add`, `apk del`, `apk update` |
 
 ```bash
-df -h                            # disk space (human-readable)
-du -sh /var/log                  # directory size
-du -sh /* | sort -rh | head -10  # top 10 largest directories
-lsblk                            # list block devices
-mount /dev/sdb1 /mnt             # mount device
-findmnt                          # show mount tree
-iostat                           # disk I/O statistics
+# ─── Debian/Ubuntu ───
+apt update                      # Refresh package list
+apt upgrade                     # Upgrade all packages
+apt install nginx               # Install
+apt remove nginx                # Remove (keep config)
+apt purge nginx                 # Remove + config
+apt autoremove                  # Remove orphaned deps
+dpkg -l | grep nginx            # List installed
+apt list --installed            # All installed packages
+
+# ─── RHEL/CentOS ───
+dnf check-update                # Check for updates
+dnf install nginx               # Install
+dnf remove nginx                # Remove
+rpm -qa | grep nginx            # List installed
 ```
 
 ---
 
-## Cron Syntax
-
-```
-┌───── minute (0 - 59)
-│ ┌───── hour (0 - 23)
-│ │ ┌───── day of month (1 - 31)
-│ │ │ ┌───── month (1 - 12)
-│ │ │ │ ┌───── day of week (0 - 7, 0 & 7 = Sunday)
-│ │ │ │ │
-* * * * *  command
-```
-
-| Cron Expression | Meaning |
-|---|---|
-| `*/5 * * * *` | Every 5 minutes |
-| `0 2 * * *` | Daily at 2:00 AM |
-| `0 0 * * 0` | Every Sunday at midnight |
-| `0 0 1 * *` | 1st of every month at midnight |
-| `0 */6 * * *` | Every 6 hours |
-| `30 9 * * 1-5` | Mon-Fri at 9:30 AM |
-
----
-
-## SSH Quick Reference
+## 7. Disk & Storage
 
 ```bash
-# Generate key pair
-ssh-keygen -t ed25519 -C "email@example.com"
+# ─── Disk usage ───
+df -h                           # Filesystem usage (human-readable)
+du -sh /var/log/                # Directory size
+du -sh /var/log/* | sort -rh | head -10  # Largest subdirs
+ncdu /var/                      # Interactive disk usage (install ncdu)
 
-# Copy key to server
-ssh-copy-id user@server
+# ─── Disk partitions ───
+lsblk                           # Block devices tree
+fdisk -l                        # Partition table
+blkid                           # Filesystem UUIDs
 
-# SSH config (~/.ssh/config)
-Host myserver
-    HostName 10.0.0.5
-    User admin
-    IdentityFile ~/.ssh/id_ed25519
+# ─── Mount ───
+mount /dev/sdb1 /mnt/data       # Mount partition
+umount /mnt/data                # Unmount
+# Persistent mount → edit /etc/fstab:
+# /dev/sdb1  /mnt/data  ext4  defaults  0  2
+
+# ─── LVM (Logical Volume Manager) ───
+# Physical Volume → Volume Group → Logical Volume
+pvcreate /dev/sdb               # Create PV
+vgcreate myvg /dev/sdb          # Create VG from PV
+lvcreate -L 10G -n mylv myvg   # Create 10GB LV
+mkfs.ext4 /dev/myvg/mylv       # Create filesystem
+lvextend -L +5G /dev/myvg/mylv # Extend by 5GB
+resize2fs /dev/myvg/mylv       # Resize filesystem to match
+```
+
+---
+
+## 8. Networking
+
+```bash
+# ─── IP & Interfaces ───
+ip addr show                    # All interfaces + IPs
+ip route show                   # Routing table
+ip link set eth0 up/down        # Enable/disable interface
+
+# ─── DNS ───
+cat /etc/resolv.conf            # DNS servers
+nslookup google.com             # DNS lookup
+dig google.com                  # Detailed DNS query
+host google.com                 # Simple DNS lookup
+
+# ─── Connectivity ───
+ping -c 4 google.com            # ICMP ping (4 packets)
+traceroute google.com           # Path to destination
+mtr google.com                  # Combined ping + traceroute (live)
+curl -I https://example.com     # HTTP headers only
+wget https://example.com/file   # Download file
+
+# ─── Ports & Connections ───
+ss -tulnp                       # All listening ports + processes
+  # t=TCP, u=UDP, l=listening, n=numeric, p=process
+netstat -tulnp                  # Legacy equivalent
+lsof -i :8080                   # What's using port 8080
+
+# ─── Firewall (iptables) ───
+iptables -L -n -v               # List rules
+iptables -A INPUT -p tcp --dport 80 -j ACCEPT    # Allow HTTP
+iptables -A INPUT -p tcp --dport 22 -j ACCEPT    # Allow SSH
+iptables -A INPUT -j DROP                        # Drop everything else
+
+# ─── Firewall (firewalld — RHEL/CentOS) ───
+firewall-cmd --list-all
+firewall-cmd --add-service=http --permanent
+firewall-cmd --reload
+```
+
+---
+
+## 9. SSH
+
+```bash
+# ─── Key-based auth (recommended) ───
+ssh-keygen -t ed25519 -C "vaibhav@devops"   # Generate key pair
+ssh-copy-id user@server                       # Copy pub key to server
+ssh user@server                               # Login (no password!)
+
+# ─── SSH config (~/.ssh/config) ───
+Host prod-web
+    HostName 10.0.1.50
+    User deploy
+    IdentityFile ~/.ssh/prod_key
     Port 22
 
-# Usage: ssh myserver (instead of ssh admin@10.0.0.5)
+ssh prod-web                    # Uses config above
 
-# Tunneling
-ssh -L 8080:localhost:80 user@server    # local forward
-ssh -R 9090:localhost:3000 user@server  # remote forward
+# ─── Tunneling ───
+ssh -L 8080:localhost:3000 user@server    # Local port forward
+  # Access server's port 3000 via localhost:8080
 
-# File transfer
-scp file.txt user@server:/path/         # copy file
-rsync -avz ./dir/ user@server:/path/    # sync directory
+ssh -R 8080:localhost:3000 user@server    # Remote port forward
+  # Server accesses your port 3000 via its localhost:8080
+
+ssh -D 1080 user@server                  # SOCKS proxy
+
+# ─── SCP & rsync ───
+scp file.txt user@server:/path/          # Copy file to server
+scp -r dir/ user@server:/path/           # Copy directory
+rsync -avz --progress dir/ user@server:/path/  # Sync (only changes)
+```
+
+---
+
+## 10. Log Management
+
+```bash
+# ─── journalctl (systemd logs) ───
+journalctl                              # All logs
+journalctl -u nginx                     # Specific service
+journalctl -u nginx --since "2 hours ago"
+journalctl -f                           # Follow (tail -f equivalent)
+journalctl -p err                       # Errors only
+journalctl -b                           # Since last boot
+journalctl --disk-usage                 # Log storage used
+
+# ─── Traditional logs ───
+/var/log/syslog          # System messages (Debian/Ubuntu)
+/var/log/messages        # System messages (RHEL/CentOS)
+/var/log/auth.log        # Authentication (SSH, sudo)
+/var/log/kern.log        # Kernel messages
+/var/log/nginx/          # Nginx access + error logs
+
+# ─── Log rotation ───
+# /etc/logrotate.d/myapp
+/var/log/myapp/*.log {
+    daily
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0640 appuser appgroup
+    postrotate
+        systemctl reload myapp
+    endscript
+}
+```
+
+---
+
+## 11. Users & Groups
+
+```bash
+useradd -m -s /bin/bash -G docker,sudo deploy  # Create user
+usermod -aG docker deploy                        # Add to group
+userdel -r olduser                               # Delete user + home
+passwd deploy                                    # Set password
+
+groupadd devops                                  # Create group
+id deploy                                        # Show UID, GID, groups
+cat /etc/passwd                                  # User list
+cat /etc/group                                   # Group list
+cat /etc/shadow                                  # Password hashes (root only)
+
+# ─── sudo ───
+visudo                           # Edit /etc/sudoers safely
+# deploy ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart myapp
+```
+
+---
+
+## 12. Performance Troubleshooting
+
+```
+Symptom → Tool → Diagnosis
+
+Slow system?
+  ├── top/htop          → High CPU? Which process?
+  ├── free -h           → Memory usage, swap usage
+  ├── iostat -x 1       → Disk I/O bottleneck? (%util near 100?)
+  ├── vmstat 1          → CPU wait (wa), context switches
+  └── dmesg | tail      → Kernel errors, OOM kills
+
+Slow network?
+  ├── ping              → Latency, packet loss
+  ├── mtr               → Where packets are lost
+  ├── ss -s             → Connection count/state
+  └── iftop / nethogs   → Bandwidth per connection/process
+
+Disk full?
+  ├── df -h             → Which filesystem is full?
+  ├── du -sh /* | sort -rh  → Largest directories
+  ├── find / -size +100M    → Large files
+  └── lsof +L1          → Deleted files still held open (restart service!)
+
+Process issues?
+  ├── strace -p PID     → System calls (what is process doing?)
+  ├── lsof -p PID       → Open files/sockets
+  └── /proc/PID/        → Process details (status, maps, fd/)
+```
+
+---
+
+## 13. Cron Jobs
+
+```bash
+# ─── Edit crontab ───
+crontab -e                      # Edit current user's crontab
+crontab -l                      # List crontab
+
+# ─── Format ───
+# ┌───────────── minute (0-59)
+# │ ┌───────────── hour (0-23)
+# │ │ ┌───────────── day of month (1-31)
+# │ │ │ ┌───────────── month (1-12)
+# │ │ │ │ ┌───────────── day of week (0-7, 0=7=Sunday)
+# │ │ │ │ │
+# * * * * * command
+
+0 2 * * *   /opt/scripts/backup.sh         # Daily at 2 AM
+*/5 * * * * /opt/scripts/health_check.sh   # Every 5 minutes
+0 0 * * 0   /opt/scripts/weekly_report.sh  # Sunday midnight
+0 9 1 * *   /opt/scripts/monthly.sh        # 1st of month at 9 AM
+```
+
+---
+
+## 14. Important One-Liners for Interviews
+
+```bash
+# Find and kill process on port 8080
+lsof -ti:8080 | xargs kill -9
+
+# Top 10 largest files
+find / -type f -exec du -h {} + 2>/dev/null | sort -rh | head -10
+
+# Monitor log in real-time for errors
+tail -f /var/log/syslog | grep -i error
+
+# Count connections by state
+ss -ant | awk '{print $1}' | sort | uniq -c | sort -rn
+
+# Disk usage by directory (sorted)
+du -sh /* 2>/dev/null | sort -rh
+
+# Find files modified in last 24 hours
+find /var/log -mtime -1 -type f
+
+# Check if port is open remotely
+nc -zv hostname 443
+
+# Memory usage per process (top 10)
+ps aux --sort=-%mem | head -10
+
+# System uptime and load
+uptime    # load averages: 1min, 5min, 15min (should be < num CPUs)
 ```

@@ -1,207 +1,206 @@
-# Jenkins - LEARNING MATERIAL
+# Jenkins — Deep-Dive Learning Guide
 
 ---
 
-## Jenkins Architecture
+## 1. What Is Jenkins?
 
-```mermaid
-graph TD
-    subgraph Controller [Jenkins Controller]
-        UI[Web UI]
-        API[REST API]
-        Queue[Build Queue]
-        Scheduler[Job Scheduler]
-        CredStore[Credential Store]
-        PluginMgr[Plugin Manager]
-    end
-    subgraph Agents
-        A1[Agent 1 - Linux<br/>Labels: linux, docker]
-        A2[Agent 2 - Windows<br/>Labels: windows, dotnet]
-        A3[Agent 3 - K8s Pod<br/>Labels: k8s, ephemeral]
-    end
-    Queue --> Scheduler
-    Scheduler -->|Dispatch by label| A1
-    Scheduler -->|Dispatch by label| A2
-    Scheduler -->|Dispatch by label| A3
-    A1 -->|Report results| Controller
-    A2 -->|Report results| Controller
-    A3 -->|Report results| Controller
+Jenkins is an **open-source automation server** written in Java that orchestrates CI/CD pipelines. It's plugin-based (1800+ plugins) and can build, test, and deploy virtually anything.
+
 ```
-
-## Pipeline Types Comparison
-
-```mermaid
-graph LR
-    subgraph Declarative
-        D1["pipeline { }"]
-        D2["agent any"]
-        D3["stages { }"]
-        D4["stage('Build')"]
-        D5["steps { }"]
-        D6["post { }"]
-        D1 --> D2 --> D3 --> D4 --> D5
-        D1 --> D6
-    end
-    subgraph Scripted
-        S1["node { }"]
-        S2["stage('Build')"]
-        S3["try/catch"]
-        S4["any Groovy code"]
-        S1 --> S2 --> S3
-        S1 --> S4
-    end
+┌─── Jenkins in the CI/CD landscape ─────────────────────────────┐
+│                                                                 │
+│  Code Commit ──► Jenkins ──► Build ──► Test ──► Deploy          │
+│                    │                                            │
+│                    ├── Freestyle jobs (UI-configured, legacy)   │
+│                    ├── Pipeline (Jenkinsfile, code-as-config)   │
+│                    └── Multibranch Pipeline (auto per branch)   │
+│                                                                 │
+│  Alternatives: GitHub Actions, Azure DevOps, GitLab CI,        │
+│                CircleCI, Tekton, ArgoCD                         │
+└─────────────────────────────────────────────────────────────────┘
 ```
-
-| Feature | Declarative | Scripted |
-|---|---|---|
-| Syntax | Structured, opinionated | Flexible, free-form Groovy |
-| Error handling | `post { failure { } }` | `try/catch/finally` |
-| Validation | Built-in validation | No pre-validation |
-| Flexibility | Limited by structure | Unlimited (full Groovy) |
-| Learning curve | Easier | Steeper |
-| Best for | Standard pipelines | Complex logic, conditionals |
-| Wrapper | `pipeline { }` | `node { }` |
 
 ---
 
-## Declarative Pipeline Structure
+## 2. Jenkins Architecture
+
+```
+┌──────────────── Jenkins Controller (Master) ──────────────────┐
+│                                                                │
+│  ┌────────────────┐  ┌──────────────┐  ┌──────────────────┐  │
+│  │  Web UI         │  │  REST API    │  │  Job Scheduler   │  │
+│  │  (dashboard,    │  │  (trigger,   │  │  (cron, SCM poll │  │
+│  │   configure,    │  │   status,    │  │   webhook)       │  │
+│  │   view logs)    │  │   artifacts) │  │                  │  │
+│  └────────────────┘  └──────────────┘  └──────────────────┘  │
+│                                                                │
+│  ┌────────────────┐  ┌──────────────┐  ┌──────────────────┐  │
+│  │  Plugin Manager│  │  Credentials │  │  Build Queue     │  │
+│  │  (install,     │  │  Store       │  │  (FIFO, labels,  │  │
+│  │   update)      │  │  (encrypted) │  │   executors)     │  │
+│  └────────────────┘  └──────────────┘  └──────────────────┘  │
+│                                                                │
+│  Should NOT run builds itself in production!                   │
+└───────────┬────────────────────────────────┬──────────────────┘
+            │                                │
+     ┌──────▼──────┐                  ┌──────▼──────┐
+     │   Agent 1   │                  │   Agent 2   │
+     │  (Linux)    │                  │  (Windows)  │
+     │             │                  │             │
+     │  Executors: │                  │  Executors: │
+     │  - Build 1  │                  │  - Build 3  │
+     │  - Build 2  │                  │             │
+     │             │                  │  Labels:    │
+     │  Labels:    │                  │  windows,   │
+     │  linux,     │                  │  dotnet     │
+     │  docker     │                  │             │
+     └─────────────┘                  └─────────────┘
+```
+
+### Key Concepts
+
+| Concept | Description |
+|---------|------------|
+| **Controller (Master)** | Manages UI, scheduling, config. Should NOT run builds in prod |
+| **Agent (Slave/Node)** | Machine that runs builds. Connected via SSH, JNLP, or cloud |
+| **Executor** | A slot on an agent for running one build. 2 executors = 2 parallel builds |
+| **Label** | Tag on agent (e.g., `linux`, `docker`). Jobs target agents by label |
+| **Workspace** | Directory on agent where job runs. Each build gets its own workspace |
+| **Fingerprint** | Hash to track which builds used which artifacts |
+
+### Agent Types
+
+```
+┌─── Permanent Agents ─────────────────────────────────────┐
+│  Always running, SSH or JNLP connected                    │
+│  Good for: dedicated build machines, special hardware     │
+└───────────────────────────────────────────────────────────┘
+
+┌─── Cloud/Dynamic Agents ─────────────────────────────────┐
+│  Spun up on demand, destroyed after build                 │
+│  Docker agents:    spin up container per build            │
+│  K8s agents:       spin up pod per build                  │
+│  Cloud agents:     spin up VM per build (AWS, Azure)      │
+│  Good for: auto-scaling, clean environments, cost savings │
+└───────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 3. Jenkinsfile — Pipeline as Code
+
+### Declarative Pipeline (recommended)
 
 ```groovy
 pipeline {
-    agent any                          // WHERE to run
+    agent { label 'linux && docker' }    // Which agent
 
-    environment {                      // ENV VARS
-        APP_NAME = 'myapp'
-        VERSION = "${BUILD_NUMBER}"
-    }
-
-    options {                          // PIPELINE OPTIONS
+    options {
         timeout(time: 30, unit: 'MINUTES')
-        timestamps()
         disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '10'))
     }
 
-    parameters {                       // INPUT PARAMS
-        string(name: 'BRANCH', defaultValue: 'main')
-        choice(name: 'ENV', choices: ['dev','staging','prod'])
-        booleanParam(name: 'DEPLOY', defaultValue: true)
+    environment {
+        APP_VERSION = "${env.BUILD_NUMBER}"
+        DOCKER_REGISTRY = 'myregistry.azurecr.io'
+        DOCKER_CREDS = credentials('docker-registry-creds')  // username:password
+    }
+
+    parameters {
+        string(name: 'DEPLOY_ENV', defaultValue: 'staging', description: 'Target env')
+        booleanParam(name: 'RUN_TESTS', defaultValue: true)
     }
 
     stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
         stage('Build') {
             steps {
-                sh 'make build'
+                sh 'docker build -t ${DOCKER_REGISTRY}/myapp:${APP_VERSION} .'
             }
         }
 
         stage('Test') {
-            parallel {                 // PARALLEL STAGES
-                stage('Unit') {
-                    steps { sh 'make unit-test' }
+            when { expression { params.RUN_TESTS } }
+            parallel {
+                stage('Unit Tests') {
+                    steps {
+                        sh 'pytest tests/unit/ --junitxml=unit-results.xml'
+                    }
                 }
-                stage('Integration') {
-                    steps { sh 'make int-test' }
+                stage('Lint') {
+                    steps {
+                        sh 'pylint src/'
+                    }
+                }
+            }
+            post {
+                always {
+                    junit 'unit-results.xml'
                 }
             }
         }
 
-        stage('Deploy') {
-            when {                     // CONDITIONAL
-                branch 'main'
-                expression { params.DEPLOY == true }
+        stage('Security Scan') {
+            steps {
+                sh 'trivy image ${DOCKER_REGISTRY}/myapp:${APP_VERSION}'
             }
-            input {                    // APPROVAL GATE
-                message "Deploy to prod?"
-                ok "Yes, deploy"
+        }
+
+        stage('Push Image') {
+            steps {
+                sh '''
+                    echo ${DOCKER_CREDS_PSW} | docker login ${DOCKER_REGISTRY} -u ${DOCKER_CREDS_USR} --password-stdin
+                    docker push ${DOCKER_REGISTRY}/myapp:${APP_VERSION}
+                '''
+            }
+        }
+
+        stage('Deploy to Staging') {
+            when { branch 'main' }
+            steps {
+                sh 'kubectl set image deployment/myapp myapp=${DOCKER_REGISTRY}/myapp:${APP_VERSION}'
+            }
+        }
+
+        stage('Deploy to Production') {
+            when { branch 'main' }
+            input {
+                message 'Deploy to production?'
+                ok 'Yes, deploy!'
             }
             steps {
-                sh 'make deploy'
+                sh 'kubectl --context prod set image deployment/myapp myapp=${DOCKER_REGISTRY}/myapp:${APP_VERSION}'
             }
         }
     }
 
-    post {                             // ALWAYS RUNS
-        always  { cleanWs() }
-        success { echo 'Build succeeded!' }
-        failure { mail to: 'team@co.com', subject: 'FAILED' }
-    }
-}
-```
-
----
-
-## Shared Libraries
-
-```mermaid
-graph TD
-    subgraph SharedLib [Shared Library Git Repo]
-        V[vars/]
-        S[src/]
-        R[resources/]
-        V --> V1[buildDocker.groovy]
-        V --> V2[notifySlack.groovy]
-        V --> V3[standardPipeline.groovy]
-        S --> S1[org/company/Utils.groovy]
-    end
-    subgraph Pipelines [Project Jenkinsfiles]
-        P1[Project A Jenkinsfile]
-        P2[Project B Jenkinsfile]
-        P3[Project C Jenkinsfile]
-    end
-    SharedLib -->|@Library| P1
-    SharedLib -->|@Library| P2
-    SharedLib -->|@Library| P3
-```
-
-### vars/standardPipeline.groovy example:
-```groovy
-def call(Map config) {
-    pipeline {
-        agent any
-        stages {
-            stage('Build') {
-                steps { sh "docker build -t ${config.imageName}:${BUILD_NUMBER} ." }
-            }
-            stage('Push') {
-                steps { sh "docker push ${config.imageName}:${BUILD_NUMBER}" }
-            }
-            stage('Deploy') {
-                steps { sh "kubectl set image deployment/${config.appName} app=${config.imageName}:${BUILD_NUMBER}" }
-            }
+    post {
+        success {
+            slackSend(channel: '#deploys', message: "✅ Build ${env.BUILD_NUMBER} succeeded")
+        }
+        failure {
+            slackSend(channel: '#deploys', message: "❌ Build ${env.BUILD_NUMBER} failed")
+        }
+        always {
+            cleanWs()    // Clean workspace
         }
     }
 }
 ```
 
-### Usage in Jenkinsfile:
-```groovy
-@Library('my-shared-lib') _
-standardPipeline(imageName: 'myregistry/myapp', appName: 'myapp')
-```
-
----
-
-## Jenkins Credential Types
-
-| Type | Use Case | Pipeline Usage |
-|---|---|---|
-| Username/Password | Registry login, API auth | `usernamePassword(credentialsId: 'id', usernameVariable: 'U', passwordVariable: 'P')` |
-| Secret Text | API tokens, simple secrets | `string(credentialsId: 'id', variable: 'TOKEN')` |
-| SSH Key | Git clone, server access | `sshUserPrivateKey(credentialsId: 'id', keyFileVariable: 'KEY')` |
-| Secret File | Kubeconfig, certs | `file(credentialsId: 'id', variable: 'FILE')` |
-| Certificate | Client certificates | `certificate(credentialsId: 'id', ...)` |
-
----
-
-## Scripted Pipeline Basics
+### Scripted Pipeline (older, more flexible)
 
 ```groovy
 node('linux') {
     try {
-        stage('Checkout') {
-            checkout scm
-        }
         stage('Build') {
+            checkout scm
             sh 'make build'
         }
         stage('Test') {
@@ -209,13 +208,11 @@ node('linux') {
         }
         stage('Deploy') {
             if (env.BRANCH_NAME == 'main') {
-                input 'Deploy to production?'
                 sh 'make deploy'
             }
         }
     } catch (e) {
         currentBuild.result = 'FAILURE'
-        mail to: 'team@co.com', subject: "FAILED: ${env.JOB_NAME}"
         throw e
     } finally {
         cleanWs()
@@ -223,16 +220,185 @@ node('linux') {
 }
 ```
 
+### Declarative vs Scripted
+
+| Aspect | Declarative | Scripted |
+|--------|-------------|---------|
+| Syntax | Structured, opinionated | Full Groovy, flexible |
+| Learning curve | Easier | Harder |
+| Error handling | `post { failure {} }` | try/catch/finally |
+| Recommended? | Yes (Jenkins official) | Legacy, complex cases |
+
 ---
 
-## Jenkins Agent Types
+## 4. Shared Libraries
 
-```mermaid
-graph TD
-    Controller[Jenkins Controller] --> P[Permanent Agent<br/>Always connected<br/>SSH / JNLP]
-    Controller --> C[Cloud Agent<br/>On-demand<br/>Docker / K8s / EC2]
-    Controller --> D[Docker Agent<br/>per pipeline { agent { docker 'image' } }]
-    P --> P1[Good for: specialized hardware, licensed tools]
-    C --> C1[Good for: scalability, cost, clean environments]
-    D --> D1[Good for: reproducible builds, isolation]
+Reusable pipeline code shared across teams/repos:
+
+```
+jenkins-shared-lib/
+├── vars/
+│   ├── buildDocker.groovy      # Called as buildDocker() in pipeline
+│   ├── deployToK8s.groovy
+│   └── notifySlack.groovy
+├── src/
+│   └── org/mycompany/
+│       └── Utils.groovy        # Helper classes
+└── resources/
+    └── templates/
+        └── deploy.yaml         # Template files
+```
+
+```groovy
+// vars/buildDocker.groovy
+def call(Map config) {
+    sh "docker build -t ${config.registry}/${config.image}:${config.tag} ."
+    sh "docker push ${config.registry}/${config.image}:${config.tag}"
+}
+
+// Usage in Jenkinsfile:
+@Library('my-shared-lib') _
+pipeline {
+    stages {
+        stage('Build') {
+            steps {
+                buildDocker(registry: 'acr.io', image: 'myapp', tag: env.BUILD_NUMBER)
+            }
+        }
+    }
+}
+```
+
+---
+
+## 5. Jenkins Security
+
+```
+┌─── Security Layers ────────────────────────────────────────────┐
+│                                                                 │
+│  Authentication:                                                │
+│  - LDAP / Active Directory / SAML / OAuth                      │
+│  - Jenkins internal user database (small teams)                │
+│                                                                 │
+│  Authorization:                                                 │
+│  - Matrix-based security (user/group → permission matrix)      │
+│  - Role-based strategy plugin (roles: admin, dev, viewer)      │
+│  - Project-based (per-job permissions)                         │
+│                                                                 │
+│  Credentials Management:                                        │
+│  - Encrypted credential store (username/password, SSH key,     │
+│    secret text, certificate, token)                            │
+│  - Scoped: global, folder, or job level                        │
+│  - NEVER hardcode secrets in Jenkinsfile!                      │
+│                                                                 │
+│  Agent Security:                                                │
+│  - Agents run in sandboxed environments                        │
+│  - Script approval for untrusted Groovy                        │
+│  - JNLP agents use encrypted channel                           │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 6. Jenkins vs Other CI/CD Tools
+
+| Feature | Jenkins | Azure DevOps | GitHub Actions | GitLab CI |
+|---------|---------|-------------|----------------|-----------|
+| Hosting | Self-hosted | Cloud + self-hosted | Cloud | Cloud + self-hosted |
+| Config | Jenkinsfile (Groovy) | YAML | YAML | YAML |
+| Plugins | 1800+ | Tasks/Extensions | Actions marketplace | Built-in |
+| Scaling | Manual (agents) | Auto (MS-hosted) | Auto (runners) | Auto (runners) |
+| Learning curve | Steep | Medium | Easy | Medium |
+| Cost | Free (infra cost) | Free tier + paid | Free tier + paid | Free tier + paid |
+| Best for | Complex enterprise | Microsoft/Azure shops | GitHub repos | GitLab repos |
+
+---
+
+## 7. Multibranch Pipeline
+
+```
+Repository with branches:
+  main
+  develop
+  feature/login
+  feature/payment
+  hotfix/security-patch
+
+Jenkins Multibranch Pipeline:
+  ┌─────────────────────────────────────────────┐
+  │  Scans repo for branches with Jenkinsfile   │
+  │                                             │
+  │  main ──────────► Pipeline (build+deploy)   │
+  │  develop ───────► Pipeline (build+test)     │
+  │  feature/login ─► Pipeline (build+test)     │
+  │  feature/payment► Pipeline (build+test)     │
+  │  hotfix/* ──────► Pipeline (build+deploy)   │
+  │                                             │
+  │  Auto-creates jobs for new branches         │
+  │  Auto-deletes jobs for deleted branches     │
+  └─────────────────────────────────────────────┘
+```
+
+---
+
+## 8. Jenkins Best Practices
+
+```
+Pipeline:
+  ✅ Pipeline as code (Jenkinsfile in repo, not UI)
+  ✅ Declarative over Scripted
+  ✅ Shared libraries for reusable logic
+  ✅ Parallel stages where possible
+  ✅ Fail fast (put quick tests first)
+  ✅ Use input{} for manual approval gates
+
+Controller:
+  ✅ No builds on controller (agents only)
+  ✅ Backup JENKINS_HOME regularly
+  ✅ Keep plugins updated
+  ✅ Use folders to organize jobs
+
+Agents:
+  ✅ Docker/K8s agents for clean, scalable builds
+  ✅ Label agents by capability
+  ✅ Use ephemeral agents (spin up, build, destroy)
+
+Security:
+  ✅ Credentials plugin (never hardcode secrets)
+  ✅ RBAC (role-based access)
+  ✅ Audit trail plugin
+  ✅ Script Security plugin
+```
+
+---
+
+## 9. Troubleshooting Jenkins
+
+```
+Build stuck in queue?
+  → Check: agents online? executors available? label matches?
+  → Jenkins → Manage → Nodes → check status
+
+Build fails but works locally?
+  → Different environment (PATH, tools, permissions)
+  → Check agent OS, installed tools
+  → Use Docker agent for reproducible builds
+
+Out of disk space?
+  → Build artifacts piling up
+  → buildDiscarder(logRotator(numToKeepStr: '10'))
+  → Clean old workspaces: cleanWs()
+  → docker system prune on agents
+
+Slow builds?
+  → Parallel stages
+  → Caching (npm cache, pip cache, Docker layer cache)
+  → Faster agents (more CPU/RAM)
+  → Incremental builds
+
+Plugin conflicts?
+  → Test updates in staging Jenkins first
+  → Pin critical plugin versions
+  → Check Jenkins compatibility matrix
 ```

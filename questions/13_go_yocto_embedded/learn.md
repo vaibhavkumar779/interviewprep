@@ -1,186 +1,255 @@
-# Go, Yocto & Embedded DevOps - LEARNING MATERIAL (YOUR CRITICAL GAP)
+# Go, Yocto & Embedded — Deep-Dive Learning Guide
 
 ---
 
-## Why Ciena Cares About These
+## 1. Go (Golang) — Overview for DevOps
 
-```mermaid
-graph TD
-    subgraph CienaON [Ciena Optical Networks Team]
-        HW[Optical Network Hardware<br/>Transponders, Routers]
-        FW[Embedded Linux Firmware<br/>Custom OS for devices]
-        SW[Device Software<br/>Control plane, Management]
-        TOOLS[DevOps Tools<br/>CI/CD, Build automation]
-    end
+Go is a statically typed, compiled language created at Google. Popular in DevOps because Docker, Kubernetes, Terraform, Prometheus — all written in Go.
 
-    YOCTO[Yocto Project] -->|Builds| FW
-    GO[Go Language] -->|DevOps tools<br/>CLI utilities| TOOLS
-    JENKINS[Jenkins] -->|Automates| YOCTO
-    GERRIT[Gerrit] -->|Code Review| SW
-    REPO[Google Repo] -->|Multi-repo mgmt| SW
+### Why Go for DevOps?
 
-    style YOCTO fill:#FF9800,color:#fff
-    style GO fill:#00BCD4,color:#fff
+```
+✅ Single binary output (no runtime dependencies!)
+✅ Cross-compilation (build for Linux on Windows)
+✅ Fast compilation
+✅ Built-in concurrency (goroutines, channels)
+✅ Strong standard library (HTTP, JSON, crypto, testing)
+✅ Static typing catches bugs at compile time
 ```
 
 ---
 
-## Go (Golang) Essentials
+## 2. Go Basics
 
-### Why Go Matters for DevOps
-```mermaid
-graph LR
-    subgraph WrittenInGo [Major DevOps Tools Written in Go]
-        D[Docker]
-        K[Kubernetes]
-        T[Terraform]
-        P[Prometheus]
-        H[Helm]
-        E[Etcd]
-        V[Vault]
-        CRI[containerd/CRI-O]
-    end
-```
-
-### Go Basics
 ```go
 package main
 
 import (
     "fmt"
     "os"
-    "os/exec"
-    "log"
+    "strings"
 )
 
+// ─── Variables ───
 func main() {
-    // Variables
-    name := "Vaibhav"
-    var age int = 30
+    // Type inference
+    name := "DevOps"                    // short declaration
+    var count int = 5                   // explicit type
+    var active bool                     // zero value: false
 
-    // Print
-    fmt.Printf("Name: %s, Age: %d\n", name, age)
+    // Constants
+    const maxRetries = 3
 
-    // If/else
-    if age > 25 {
-        fmt.Println("Experienced")
+    // String operations
+    fmt.Printf("Hello %s, count=%d\n", name, count)
+    fmt.Println(strings.ToUpper(name))  // "DEVOPS"
+    fmt.Println(len(name))              // 6
+
+    // Conditionals
+    if count > 3 {
+        fmt.Println("High count")
+    } else if count > 1 {
+        fmt.Println("Medium count")
+    } else {
+        fmt.Println("Low count")
     }
 
-    // For loop (only loop in Go)
+    // For loop (only loop in Go — no while!)
     for i := 0; i < 5; i++ {
         fmt.Println(i)
     }
 
-    // Slice (dynamic array)
-    fruits := []string{"apple", "banana", "cherry"}
-    for _, fruit := range fruits {
-        fmt.Println(fruit)
+    // While-style
+    retries := 0
+    for retries < maxRetries {
+        retries++
     }
 
-    // Map
-    config := map[string]string{
-        "host": "localhost",
-        "port": "8080",
+    // Range (iterate over slice/map/string)
+    servers := []string{"web1", "web2", "db1"}
+    for i, server := range servers {
+        fmt.Printf("%d: %s\n", i, server)
     }
-    fmt.Println(config["host"])
-
-    // Error handling (no try/catch!)
-    data, err := os.ReadFile("config.txt")
-    if err != nil {
-        log.Fatalf("Failed to read: %v", err)
-    }
-    fmt.Println(string(data))
-
-    // Run shell command
-    cmd := exec.Command("ls", "-la")
-    output, err := cmd.Output()
-    if err != nil {
-        log.Fatal(err)
-    }
-    fmt.Println(string(output))
 }
 ```
 
-### Go Key Concepts
+### Data Structures
 
-| Concept | Description |
-|---|---|
-| **Goroutines** | Lightweight threads: `go myFunction()` |
-| **Channels** | Communication between goroutines: `ch := make(chan string)` |
-| **Interfaces** | Implicit (no `implements` keyword) |
-| **Error handling** | Return error as second value, check with `if err != nil` |
-| **Modules** | `go mod init`, `go.mod` manages dependencies |
-| **Cross-compilation** | `GOOS=linux GOARCH=arm64 go build` → binary for target HW |
-| **Static binary** | Single file, no dependencies → great for containers |
-| **Testing** | `go test ./...` with `_test.go` files |
+```go
+// ─── Slices (dynamic arrays) ───
+servers := []string{"web1", "web2"}
+servers = append(servers, "web3")       // Add element
+fmt.Println(len(servers))               // 3
+sub := servers[0:2]                     // Slice of slice
+
+// ─── Maps ───
+config := map[string]string{
+    "host": "localhost",
+    "port": "8080",
+}
+config["env"] = "prod"                  // Add key
+val, ok := config["host"]              // Check if key exists
+if ok {
+    fmt.Println(val)
+}
+delete(config, "env")                  // Remove key
+
+// ─── Structs ───
+type Server struct {
+    Name     string
+    IP       string
+    Port     int
+    IsActive bool
+}
+
+s := Server{Name: "web1", IP: "10.0.1.5", Port: 8080, IsActive: true}
+fmt.Println(s.Name)
+```
+
+### Functions & Error Handling
+
+```go
+// Go functions return errors (no exceptions!)
+func deploy(service string, version string) (string, error) {
+    if service == "" {
+        return "", fmt.Errorf("service name cannot be empty")
+    }
+    result := fmt.Sprintf("Deployed %s:%s", service, version)
+    return result, nil     // nil = no error
+}
+
+// Caller MUST handle the error
+result, err := deploy("web-api", "v2.0")
+if err != nil {
+    fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+    os.Exit(1)
+}
+fmt.Println(result)
+```
+
+### Concurrency (goroutines + channels)
+
+```go
+// Goroutine = lightweight thread (~2KB stack vs ~1MB OS thread)
+func healthCheck(server string, results chan<- string) {
+    // ... check server health
+    results <- fmt.Sprintf("%s: healthy", server)  // Send to channel
+}
+
+func main() {
+    servers := []string{"web1", "web2", "web3", "db1"}
+    results := make(chan string, len(servers))       // Buffered channel
+
+    for _, server := range servers {
+        go healthCheck(server, results)              // Launch goroutine
+    }
+
+    for i := 0; i < len(servers); i++ {
+        fmt.Println(<-results)                       // Receive from channel
+    }
+}
+```
+
+### Building & Cross-Compiling
+
+```bash
+# Build
+go build -o myapp main.go           # Binary for current OS
+
+# Cross-compile (from Windows → Linux binary!)
+GOOS=linux GOARCH=amd64 go build -o myapp-linux main.go
+GOOS=darwin GOARCH=arm64 go build -o myapp-mac main.go
+
+# Run
+go run main.go                       # Compile + run (dev only)
+
+# Test
+go test ./...                        # Run all tests
+go test -v ./...                     # Verbose
+go test -cover ./...                 # Coverage
+
+# Modules
+go mod init myproject                # Initialize module
+go mod tidy                          # Clean dependencies
+go get github.com/pkg/errors         # Add dependency
+```
 
 ---
 
-## Yocto Project Deep Dive
+## 3. Yocto Project — Overview
 
-### What is Yocto?
+Yocto is a **build framework** for creating custom Linux distributions for embedded devices.
 
-```mermaid
-graph LR
-    subgraph Inputs
-        R[Recipes .bb files<br/>Build instructions]
-        L[Layers meta-*<br/>Collections of recipes]
-        C[Configuration<br/>local.conf, bblayers.conf]
-        S[Source Code<br/>Linux kernel, packages]
-    end
-    subgraph BuildSystem [Yocto Build System]
-        BB[BitBake Engine]
-    end
-    subgraph Outputs
-        IMG[Linux Image<br/>Bootable OS]
-        PKG[Packages<br/>.rpm, .deb, .ipk]
-        SDK[SDK<br/>Cross-compilation tools]
-    end
-    Inputs --> BB --> Outputs
+```
+What Yocto does:
+  Takes:   Source packages + configuration + recipes
+  Outputs: Complete Linux image (kernel + rootfs + bootloader)
+           Customized for YOUR specific hardware
+
+Why Yocto?
+  - Build a minimal Linux for a router, IoT device, car infotainment
+  - Only include what you need (tiny image: 8MB-200MB)
+  - Reproducible builds (same input → same output)
+  - Cross-compilation (build ARM image on x86)
 ```
 
-### Yocto Build Workflow
+### Yocto Architecture
 
-```mermaid
-graph TD
-    F[1. Fetch<br/>Download source code] --> U[2. Unpack<br/>Extract archives]
-    U --> PA[3. Patch<br/>Apply patches]
-    PA --> CF[4. Configure<br/>./configure or cmake]
-    CF --> CO[5. Compile<br/>Cross-compile for target]
-    CO --> IN[6. Install<br/>Install to staging]
-    IN --> PK[7. Package<br/>Create .rpm/.deb/.ipk]
-    PK --> IM[8. Image<br/>Assemble rootfs image]
+```
+┌─── Yocto Build System ────────────────────────────────────┐
+│                                                            │
+│  ┌──────────────┐                                         │
+│  │  Metadata    │  Recipes (.bb), config, machine defs    │
+│  │  (Layers)    │                                         │
+│  └──────┬───────┘                                         │
+│         │                                                  │
+│  ┌──────▼───────┐                                         │
+│  │  BitBake     │  Build engine (like make/cmake)         │
+│  │  (scheduler) │  Parses recipes, resolves deps,         │
+│  │              │  schedules tasks                        │
+│  └──────┬───────┘                                         │
+│         │                                                  │
+│  ┌──────▼───────┐  ┌──────────────┐  ┌─────────────────┐ │
+│  │  Fetch       │  │  Compile     │  │  Package        │ │
+│  │  (download   │  │  (cross-     │  │  (create .rpm,  │ │
+│  │   sources)   │  │   compile)   │  │   .deb, .ipk)   │ │
+│  └──────────────┘  └──────────────┘  └─────────────────┘ │
+│         │                                                  │
+│  ┌──────▼────────────────────────────────────────────┐    │
+│  │  Image Generation                                  │    │
+│  │  (rootfs + kernel + bootloader = flashable image) │    │
+│  └────────────────────────────────────────────────────┘    │
+└────────────────────────────────────────────────────────────┘
 ```
 
-### Key Yocto Terminology
+### Key Yocto Concepts
 
-| Term | What It Is | Example |
-|---|---|---|
-| **Recipe (.bb)** | Build instructions for ONE package | `nginx_1.24.bb` |
-| **Layer (meta-*)** | Collection of related recipes | `meta-ciena`, `meta-networking` |
-| **BitBake** | The build engine (like Make) | `bitbake core-image-minimal` |
-| **Poky** | Reference distribution (starting point) | Includes OE-Core + BitBake |
-| **OpenEmbedded** | Build framework Yocto is based on | OE-Core layer |
-| **BSP** | Board Support Package (HW-specific) | `meta-intel`, `meta-raspberrypi` |
-| **Image** | Final bootable output | `core-image-minimal`, `core-image-full` |
-| **Machine** | Target hardware definition | `MACHINE = "qemuarm64"` |
-| **Distro** | Distribution policy | `DISTRO = "poky"` |
-| **sstate-cache** | Shared state cache (speeds rebuilds) | Cached build outputs |
-| **.bbappend** | Modify existing recipe without forking | `nginx_%.bbappend` |
+| Concept | Description |
+|---------|------------|
+| **Recipe (.bb)** | Instructions to build one package (fetch, compile, install) |
+| **Layer** | Collection of recipes and config (meta-openembedded, meta-raspberrypi) |
+| **BitBake** | Build engine — parses recipes, runs tasks |
+| **Poky** | Reference distribution (Yocto's default) |
+| **BSP (Board Support Package)** | Hardware-specific layer (kernel config, bootloader) |
+| **Machine** | Target hardware configuration (MACHINE = "raspberrypi4") |
+| **Distro** | Distribution policy (init system, libc, features) |
+| **Image** | Final output — complete Linux system |
 
-### Example Recipe (.bb file)
-```bash
-# meta-mycompany/recipes-apps/myapp/myapp_1.0.bb
+### Yocto Recipe Example
+
+```bitbake
+# recipes-apps/myapp/myapp_1.0.bb
 SUMMARY = "My custom application"
+DESCRIPTION = "A simple hello world application"
 LICENSE = "MIT"
 LIC_FILES_CHKSUM = "file://LICENSE;md5=abc123"
 
-SRC_URI = "git://github.com/myco/myapp.git;branch=main"
-SRCREV = "abc123def456"
+SRC_URI = "git://github.com/myorg/myapp.git;branch=main;protocol=https"
+SRCREV = "a1b2c3d4e5f6"
 
 S = "${WORKDIR}/git"
 
-inherit cmake    # or: inherit autotools, setuptools3
+inherit cmake       # Use cmake build system
 
 do_install() {
     install -d ${D}${bindir}
@@ -188,121 +257,260 @@ do_install() {
 }
 ```
 
-### Yocto Directory Structure
-```
-poky/
-├── bitbake/                    # BitBake build tool
-├── meta/                       # OE-Core layer
-├── meta-poky/                  # Poky distro layer
-├── meta-yocto-bsp/            # Yocto BSP layer
-└── build/                      # Build directory
-    ├── conf/
-    │   ├── local.conf          # Machine, distro, parallel settings
-    │   └── bblayers.conf       # Which layers to include
-    ├── tmp/
-    │   ├── deploy/images/      # OUTPUT: final images here
-    │   ├── work/               # Per-recipe build directories
-    │   └── sstate-cache/       # Cached build outputs
-    └── downloads/              # Downloaded source tarballs
-```
+### Yocto Build Commands
 
-### Key Configuration Files
-
-**local.conf:**
 ```bash
-MACHINE = "qemuarm64"          # Target hardware
-DISTRO = "poky"                # Distribution
-PARALLEL_MAKE = "-j 8"         # Parallel compilation
-BB_NUMBER_THREADS = "8"        # Parallel BitBake tasks
-DL_DIR = "/opt/yocto/downloads"       # Shared downloads
-SSTATE_DIR = "/opt/yocto/sstate-cache" # Shared build cache
+# Setup build environment
+source oe-init-build-env build-dir
+
+# Configure (conf/local.conf)
+MACHINE = "raspberrypi4-64"
+DISTRO = "poky"
+IMAGE_INSTALL:append = " python3 nginx openssh"
+
+# Build
+bitbake core-image-minimal        # Minimal image (~8MB)
+bitbake core-image-base            # Base image with networking
+bitbake core-image-sato            # Full desktop image
+
+# Build single recipe
+bitbake myapp                      # Build just myapp
+bitbake -c clean myapp             # Clean myapp
+bitbake -c devshell myapp          # Open dev shell for debugging
+
+# Output: tmp/deploy/images/<machine>/
+#   core-image-minimal-raspberrypi4.wic  (flashable image)
+#   zImage (kernel)
+#   rootfs.tar.gz
 ```
 
-**bblayers.conf:**
-```bash
-BBLAYERS = " \
-    /path/to/poky/meta \
-    /path/to/poky/meta-poky \
-    /path/to/meta-openembedded/meta-oe \
-    /path/to/meta-ciena \
-"
-```
+### Yocto Layer Structure
 
-### Common Yocto Commands
-```bash
-source oe-init-build-env build/         # Setup environment
-bitbake core-image-minimal              # Build minimal image
-bitbake myapp                           # Build single recipe
-bitbake -c menuconfig virtual/kernel    # Configure kernel
-bitbake -c devshell myapp               # Open dev shell
-bitbake -e myapp | grep ^SRC_URI       # Show recipe variables
-bitbake-layers show-layers              # List active layers
-bitbake-layers show-recipes "*nginx*"   # Find recipes
+```
+meta-mylayer/
+├── conf/
+│   └── layer.conf                 # Layer metadata
+├── recipes-apps/
+│   └── myapp/
+│       ├── myapp_1.0.bb           # Recipe
+│       └── files/
+│           └── myapp.service      # systemd service file
+├── recipes-core/
+│   └── images/
+│       └── my-custom-image.bb     # Custom image recipe
+└── README.md
 ```
 
 ---
 
-## Embedded CI/CD Architecture
+## 4. Embedded Linux — Key Concepts
 
-```mermaid
-graph TD
-    DEV[Developer] -->|Push code| GERRIT[Gerrit / Git]
-    GERRIT -->|Trigger| JENKINS[Jenkins CI]
-    JENKINS -->|Run| BUILD[Yocto Build<br/>bitbake image]
-    BUILD -->|Output| IMG[Firmware Image]
-    IMG -->|Deploy to| QEMU[QEMU Emulator<br/>Automated Tests]
-    IMG -->|Flash to| HW[Hardware Lab<br/>Integration Tests]
-    QEMU -->|Results| JENKINS
-    HW -->|Results| JENKINS
-    JENKINS -->|Report| GERRIT
-    JENKINS -->|Artifact| ARTIFACTORY[Artifact Storage]
+### Boot Process
 
-    style BUILD fill:#FF9800,color:#fff
-    style QEMU fill:#4CAF50,color:#fff
-    style HW fill:#2196F3,color:#fff
+```
+Power On
+    │
+┌───▼───┐
+│ BIOS/ │  Hardware init, find bootloader
+│ UEFI  │
+└───┬───┘
+    │
+┌───▼───────┐
+│ Bootloader│  U-Boot, GRUB
+│           │  Load kernel + device tree into RAM
+└───┬───────┘
+    │
+┌───▼───────┐
+│ Kernel    │  Hardware drivers, memory init
+│           │  Mount root filesystem
+└───┬───────┘
+    │
+┌───▼───────┐
+│ Init      │  systemd (PID 1)
+│ System    │  Start services, mount filesystems
+└───┬───────┘
+    │
+┌───▼───────┐
+│ Userspace │  Applications, daemons
+│           │  System ready!
+└───────────┘
 ```
 
-### Embedded vs Web CI/CD
+### Cross-Compilation
 
-| Aspect | Web/Cloud | Embedded |
-|---|---|---|
-| Build time | Minutes | Hours (full Yocto build) |
-| Test target | Containers/VMs | Real hardware / emulators |
-| Artifact | Docker image | Firmware binary / OS image |
-| Deploy | `kubectl apply` | Flash to device / OTA update |
-| Cross-compile | Usually not needed | Always needed |
-| Build cache | Docker layers, npm cache | sstate-cache, downloads cache |
-| Frequency | Multiple/day | Daily/nightly builds |
-| Toolchain | Standard (Node, Python, Java) | Custom cross-toolchain |
+```
+Build Host (x86_64 laptop)     Target Device (ARM)
+┌──────────────────────┐       ┌──────────────────────┐
+│  Cross-compiler:     │       │                      │
+│  arm-linux-gnueabi-  │──────►│  Runs ARM binary     │
+│  gcc                 │       │  (can't run x86!)    │
+│                      │       │                      │
+│  Builds ARM binary   │       │  Embedded Linux      │
+│  on x86 machine      │       │  (Yocto output)      │
+└──────────────────────┘       └──────────────────────┘
 
-### QEMU for CI Testing
-```bash
-# Run Yocto image in QEMU
-runqemu qemuarm64 nographic
-
-# Or directly
-qemu-system-aarch64 \
-    -machine virt \
-    -kernel Image \
-    -drive file=rootfs.ext4,format=raw \
-    -nographic \
-    -append "root=/dev/vda console=ttyAMA0"
+Why cross-compile?
+  - Target device too slow to compile (minutes vs hours)
+  - Target may have limited storage
+  - CI/CD runs on x86 servers, deploys to ARM devices
 ```
 
 ---
 
-## How to Talk About Yocto in Interview (Even Without Experience)
+## 5. DevOps for Embedded
 
-**Frame it positively:**
-> "I haven't worked directly with Yocto, but I understand it conceptually — it's a build system for creating custom embedded Linux distributions using BitBake and recipes. My CI/CD and Jenkins experience translates directly: automating builds, managing caching (sstate-cache is analogous to Docker layer caching), parallelizing work, and integrating with code review systems like Gerrit. I'm confident I can ramp up quickly on the specifics."
+```
+┌─── Embedded CI/CD Pipeline ───────────────────────────────┐
+│                                                            │
+│  Code Push ──► Build (Yocto/cross-compile)                │
+│                  │                                         │
+│               ┌──▼───────────┐                            │
+│               │ Unit Tests   │  Run on build host (QEMU)  │
+│               └──┬───────────┘                            │
+│                  │                                         │
+│               ┌──▼───────────┐                            │
+│               │ Flash to     │  Deploy to test device      │
+│               │ Test Board   │  (or emulator)             │
+│               └──┬───────────┘                            │
+│                  │                                         │
+│               ┌──▼───────────┐                            │
+│               │ Integration  │  Hardware-in-the-loop tests│
+│               │ Tests        │  (serial, GPIO, network)   │
+│               └──┬───────────┘                            │
+│                  │                                         │
+│               ┌──▼───────────┐                            │
+│               │ OTA Update   │  Deploy to fleet of devices│
+│               │ (SWUpdate,   │  (staged rollout)          │
+│               │  Mender)     │                            │
+│               └──────────────┘                            │
+└────────────────────────────────────────────────────────────┘
 
-**Draw parallels:**
-| Your Experience | Yocto Equivalent |
-|---|---|
-| Docker build | `bitbake image` |
-| Dockerfile | Recipe (.bb file) |
-| Docker layer cache | sstate-cache |
-| Docker registry | Artifact server for images |
-| Azure Pipeline YAML | Jenkinsfile for Yocto builds |
-| `npm install` / `pip install` | BitBake fetch + compile |
-| Multi-stage build | Yocto build stages (fetch→compile→package→image) |
+Challenges:
+  - Long build times (Yocto: 1-8 hours for full build)
+  - Hardware dependencies (need actual boards for testing)
+  - OTA updates (can't just redeploy like cloud apps)
+  - Regulatory compliance (safety-critical, certifications)
+```
+
+### OTA (Over-the-Air) Updates
+
+```
+Tools for embedded OTA:
+  Mender     — open source, client-server, A/B partition
+  SWUpdate   — lightweight, dual-bank updates
+  RAUC       — redundant A/B updating
+  Balena     — container-based IoT fleet management
+
+A/B Partition Strategy:
+  ┌──────────┐  ┌──────────┐
+  │ Slot A   │  │ Slot B   │
+  │ (active) │  │ (update) │
+  │ v1.0     │  │ v1.1     │  ← download new version here
+  └──────────┘  └──────────┘
+                       │
+       If v1.1 boots OK → mark as active
+       If v1.1 fails    → revert to Slot A (v1.0)
+       Always have a working fallback!
+```
+
+---
+
+## 6. Go in DevOps Tools
+
+```
+Tools written in Go (why it matters for Ciena):
+
+Container & Orchestration:
+  Docker (dockerd, containerd)
+  Kubernetes (all components)
+  Helm
+  Podman
+
+IaC & Config:
+  Terraform
+  Packer
+  Consul
+  Vault
+
+CI/CD:
+  Drone CI
+  Tekton
+
+Monitoring:
+  Prometheus
+  Grafana (backend)
+  Jaeger
+
+Networking:
+  CoreDNS
+  Envoy (control plane)
+  Cilium
+  Traefik
+
+Security:
+  Trivy
+  Falco
+
+Understanding Go helps you:
+  - Read source code of these tools
+  - Write plugins and extensions
+  - Build custom operators for K8s
+  - Write CLI tools for automation
+```
+
+---
+
+## 7. Go CLI Tool Example
+
+```go
+// Simple DevOps CLI tool
+package main
+
+import (
+    "encoding/json"
+    "fmt"
+    "net/http"
+    "os"
+    "time"
+)
+
+type HealthResponse struct {
+    Status  string `json:"status"`
+    Version string `json:"version"`
+}
+
+func checkHealth(url string, timeout time.Duration) (*HealthResponse, error) {
+    client := &http.Client{Timeout: timeout}
+    resp, err := client.Get(url)
+    if err != nil {
+        return nil, fmt.Errorf("request failed: %w", err)
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode != 200 {
+        return nil, fmt.Errorf("unhealthy: status %d", resp.StatusCode)
+    }
+
+    var health HealthResponse
+    if err := json.NewDecoder(resp.Body).Decode(&health); err != nil {
+        return nil, fmt.Errorf("decode failed: %w", err)
+    }
+
+    return &health, nil
+}
+
+func main() {
+    if len(os.Args) < 2 {
+        fmt.Fprintf(os.Stderr, "Usage: %s <url>\n", os.Args[0])
+        os.Exit(1)
+    }
+
+    health, err := checkHealth(os.Args[1], 5*time.Second)
+    if err != nil {
+        fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
+        os.Exit(1)
+    }
+
+    fmt.Printf("Status: %s, Version: %s\n", health.Status, health.Version)
+}
+```
