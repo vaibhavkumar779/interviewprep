@@ -39,7 +39,7 @@
 ### Phase 3: MONDAY MORNING before interview (~2 hours)
 10. **Quick review of all notes** (1 hr)
 11. **Ciena company research** (30 min) - Optical Networks, products, recent news
-12. **Mock dry run** - explain your work at my current company in STAR format (30 min)
+12. **Mock dry run** - explain your work at current role in STAR format (30 min)
 
 ---
 

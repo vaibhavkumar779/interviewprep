@@ -62,9 +62,9 @@
 50. What questions do you have for us?
 
 ### Questions About YOUR Experience (Prepare Stories)
-51. Walk me through your CI/CD pipeline at my current company. What tools, what stages, what triggers?
+51. Walk me through your CI/CD pipeline at your current role. What tools, what stages, what triggers?
 52. Tell me about the JFrog to GitHub Packages migration you did. Challenges? Results?
-53. How did you use Terraform and Ansible at my current company? What infrastructure did you manage?
+53. How did you use Terraform and Ansible at your current role? What infrastructure did you manage?
 54. Tell me about your Prometheus/Grafana setup. What metrics did you monitor? What alerts?
 55. What was your role in containerizing applications with Docker and Kubernetes?
 56. How did you collaborate with distributed engineering teams?

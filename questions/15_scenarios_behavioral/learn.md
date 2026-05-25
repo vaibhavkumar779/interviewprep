@@ -74,7 +74,7 @@ graph TD
 > "At my current company, I worked closely with developers across multiple teams on shared Azure DevOps pipelines. When teams had conflicting requirements, I created templated pipeline definitions that could be customized per team while maintaining our standards."
 
 ### Learning New Technologies
-> "When I joined current company, I had no Azure DevOps experience. I ramped up by reading docs, building proof-of-concepts, and within 3 months I was the go-to person for pipeline questions in my team."
+> "When I joined my current company, I had no Azure DevOps experience. I ramped up by reading docs, building proof-of-concepts, and within 3 months I was the go-to person for pipeline questions in my team."
 
 ### Handling Ambiguity
 > "In my current role, requirements often change. I've learned to build flexible, modular solutions - like using YAML templates in Azure Pipelines - so changes don't require rebuilding everything."

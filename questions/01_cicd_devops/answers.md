@@ -72,7 +72,7 @@ Moving activities like testing, security scanning, and quality checks earlier in
 
 **21-25: Interview-Style**
 
-**21.** *(Prepare your own your own story — describe real pipeline you built with Azure DevOps)*
+**21.** *(Prepare your own story — describe real pipeline you built with Azure DevOps)*
 
 **22.** *(Prepare your own story — most complex pipeline problem, how you diagnosed and fixed it)*
 

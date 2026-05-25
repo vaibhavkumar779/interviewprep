@@ -7,7 +7,7 @@
 
 ### Basic
 **Q: What is CI/CD? Explain the difference between CI, CD (Delivery), and CD (Deployment).**
-A: 
+A:
 - CI (Continuous Integration): Developers merge code to main branch frequently. Each merge triggers automated build + tests. Catches integration bugs early.
 - CD (Continuous Delivery): Code is always in a deployable state. After CI passes, artifact is ready to deploy but requires manual approval.
 - CD (Continuous Deployment): Every change that passes all stages is automatically deployed to production. No manual gate.

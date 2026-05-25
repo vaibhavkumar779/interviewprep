@@ -234,7 +234,7 @@ RFC process → review → approve → implement. Staged rollout (dev → stagin
 **41. Why Ciena?**
 > Backbone of internet infrastructure. Embedded DevOps is growth opportunity. My CI/CD/Docker/K8s skills transfer directly. Want to learn Yocto/Jenkins at scale/hardware workflows.
 
-**42. Why leaving your current company?**
+**42. Why leaving current company?**
 > Growth, not dissatisfaction. Looking for embedded systems challenge. Ciena offers DevOps + embedded Linux combination I want to learn.
 
 **43. Interest in optical networking/embedded?**
@@ -265,7 +265,7 @@ RFC process → review → approve → implement. Staged rollout (dev → stagin
 
 ## YOUR Experience Stories
 
-**51. CI/CD at my current company.**
+**51. CI/CD at current role.**
 > Azure DevOps YAML pipelines. PR trigger for branches, CI on main. Build → Unit tests → SonarQube SAST + Snyk SCA (parallel) → Docker multi-stage build → ACR push → Helm deploy to AKS (dev auto, staging auto + smoke tests, prod manual approval + rolling update). Shared templates across 10+ services.
 
 **52. JFrog to GitHub Packages migration.**
@@ -306,7 +306,7 @@ RFC process → review → approve → implement. Staged rollout (dev → stagin
 > Start with Poky: build core-image-minimal for QEMU. Study recipes/layers in Ciena codebase. Pair with experienced member. Analogies: recipe=Dockerfile, sstate-cache=Docker layer cache.
 
 **63. Relevant to 100+ developer CI?**
-> Managed CI for 10+ services/5 teams at my current company. Created shared templates. Understand: queue management, agent scaling, flaky tests, cache, standardization.
+> Managed CI for 10+ services/5 teams at current company. Created shared templates. Understand: queue management, agent scaling, flaky tests, cache, standardization.
 
 **64. Improve build reliability?**
 > Measure failure rate, categorize (flaky/infra/real), quarantine flaky tests, stable agents with monitoring, pin dependencies, dashboard showing trends.
