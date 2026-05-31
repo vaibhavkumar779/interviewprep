@@ -98,3 +98,4 @@
 | `08_splunk_guide.md` | **Splunk from zero**: SPL syntax, stats, timechart, eval, rex, K8s logs in Splunk, dashboards | ~600 lines |
 | `09_python_practice.md` | **Python coding practice**: YAML/JSON, log parsing, HTTP APIs, K8s automation, CLI tools, testing | ~600 lines |
 | `10_chaos_buildkite_pagerduty.md` | **Three topics**: chaos engineering (Chaos Mesh), Buildkite CI/CD pipelines, PagerDuty incident mgmt | ~700 lines |
+| `11_resume_walkthrough.md` | **Resume prep**: "Tell me about yourself", deep-dive on every bullet, tricky questions, why leave/join | ~400 lines |
