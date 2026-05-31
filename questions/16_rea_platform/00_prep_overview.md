@@ -68,12 +68,33 @@
 
 ## STUDY PRIORITY ORDER
 
-| Priority | Topic | Time Needed | Impact |
-|----------|-------|-------------|--------|
-| 1 | Go basics for K8s tooling | 4-5 hours | Coding round |
-| 2 | SLI/SLO/SLA practical scenarios | 2 hours | Technical round |
-| 3 | AWS deep-dive (EKS, CloudWatch) | 3 hours | Technical round |
-| 4 | Splunk basics (SPL queries) | 2 hours | Fixing round |
-| 5 | Chaos Engineering hands-on | 2 hours | Technical round |
-| 6 | Buildkite + PagerDuty awareness | 1 hour | Bonus points |
-| 7 | REA company research & values | 1 hour | Values round |
+| Priority | Topic | Time Needed | Study File | Impact |
+|----------|-------|-------------|------------|--------|
+| 1 | Go from absolute zero | 5-6 hours | `05_go_complete_guide.md` | Coding round |
+| 2 | SLI/SLO/SLA practical (error budgets, burn rates, Prometheus) | 2-3 hours | `07_sli_slo_sla_guide.md` | Technical round |
+| 3 | AWS deep-dive (EKS, IAM/IRSA, VPC, CloudWatch) | 3-4 hours | `06_aws_deepdive.md` | Technical round |
+| 4 | Splunk SPL from zero (log analysis, dashboards) | 2-3 hours | `08_splunk_guide.md` | Fixing + Technical round |
+| 5 | Webserver fixing / debugging (Nginx, Apache, Linux) | 2-3 hours | `02_fixing_round.md` | Fixing round |
+| 6 | Python platform coding practice | 2-3 hours | `09_python_practice.md` | Coding round |
+| 7 | Chaos Engineering + Buildkite + PagerDuty | 2-3 hours | `10_chaos_buildkite_pagerduty.md` | Technical round |
+| 8 | K8s + Platform engineering deep technical | 2 hours | `03_technical_round.md` | Technical round |
+| 9 | Go/Python/K8s coding patterns | 1-2 hours | `01_coding_round.md` | Coding round |
+| 10 | REA values & behavioral STAR answers | 1 hour | `04_values_round.md` | Values round |
+
+---
+
+## FILE INDEX
+
+| File | Content | Pages |
+|------|---------|-------|
+| `00_prep_overview.md` | This file — JD analysis, gap matrix, study order | — |
+| `01_coding_round.md` | Go basics, Python tooling, K8s manifests, Buildkite pipeline patterns | ~200 lines |
+| `02_fixing_round.md` | Webserver debugging: Nginx, Apache, DNS, SSL, systemd, logs, 12 scenarios | ~600 lines |
+| `03_technical_round.md` | K8s deep-dive, RBAC, networking, SRE, AWS, observability, capacity planning | ~400 lines |
+| `04_values_round.md` | REA values, STAR behavioral answers, cultural fit | ~200 lines |
+| `05_go_complete_guide.md` | **Go from absolute zero**: variables, functions, goroutines, HTTP servers, K8s client-go, testing | ~1200 lines |
+| `06_aws_deepdive.md` | **AWS mapped from Azure**: IAM/IRSA, VPC, EKS, ECR, CloudWatch, Route 53, S3, Lambda, IaC | ~600 lines |
+| `07_sli_slo_sla_guide.md` | **Practical SRE**: SLI definitions, SLO targets, error budget math, burn rate, Prometheus rules, Grafana | ~500 lines |
+| `08_splunk_guide.md` | **Splunk from zero**: SPL syntax, stats, timechart, eval, rex, K8s logs in Splunk, dashboards | ~600 lines |
+| `09_python_practice.md` | **Python coding practice**: YAML/JSON, log parsing, HTTP APIs, K8s automation, CLI tools, testing | ~600 lines |
+| `10_chaos_buildkite_pagerduty.md` | **Three topics**: chaos engineering (Chaos Mesh), Buildkite CI/CD pipelines, PagerDuty incident mgmt | ~700 lines |
