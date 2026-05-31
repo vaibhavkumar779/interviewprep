@@ -74,71 +74,71 @@ def validate_deployment(yaml_content: str) -> list[str]:
         doc = yaml.safe_load(yaml_content)
     except yaml.YAMLError as e:
         return [f"Invalid YAML: {e}"]
-    
+
     if not isinstance(doc, dict):
         return ["Document is not a YAML mapping"]
-    
+
     # Check apiVersion
     if "apiVersion" not in doc:
         issues.append("Missing apiVersion")
-    
+
     # Check kind
     kind = doc.get("kind", "")
     if kind != "Deployment":
         issues.append(f"Expected kind 'Deployment', got '{kind}'")
-    
+
     # Check metadata
     metadata = doc.get("metadata", {})
     if not metadata.get("name"):
         issues.append("Missing metadata.name")
     if not metadata.get("namespace"):
         issues.append("Warning: No namespace specified (will use 'default')")
-    
+
     # Check spec
     spec = doc.get("spec", {})
     if not spec:
         issues.append("Missing spec")
         return issues
-    
+
     # Check replicas
     replicas = spec.get("replicas", 1)
     if replicas < 2:
         issues.append(f"Warning: replicas={replicas}. Consider >=2 for HA")
-    
+
     # Check template
     template = spec.get("template", {}).get("spec", {})
     containers = template.get("containers", [])
-    
+
     if not containers:
         issues.append("No containers defined")
         return issues
-    
+
     for i, container in enumerate(containers):
         prefix = f"container[{i}]({container.get('name', 'unnamed')})"
-        
+
         # Check image tag
         image = container.get("image", "")
         if ":latest" in image or ":" not in image:
             issues.append(f"{prefix}: Using 'latest' or no tag — pin a specific version")
-        
+
         # Check resource limits
         resources = container.get("resources", {})
         if not resources.get("limits"):
             issues.append(f"{prefix}: No resource limits — can cause OOM/noisy neighbor")
         if not resources.get("requests"):
             issues.append(f"{prefix}: No resource requests — scheduler can't make good decisions")
-        
+
         # Check liveness/readiness probes
         if not container.get("livenessProbe"):
             issues.append(f"{prefix}: No livenessProbe — K8s won't restart stuck containers")
         if not container.get("readinessProbe"):
             issues.append(f"{prefix}: No readinessProbe — traffic may go to unready pods")
-        
+
         # Check security context
         sec = container.get("securityContext", {})
         if sec.get("runAsRoot", False) or sec.get("privileged", False):
             issues.append(f"{prefix}: Running as root or privileged — security risk")
-    
+
     return issues
 
 # Test:
@@ -189,9 +189,9 @@ def generate_k8s_manifests(
     host: str = None,
 ) -> str:
     """Generate K8s Deployment + Service + Ingress YAML."""
-    
+
     labels = {"app": name, "team": "platform"}
-    
+
     deployment = {
         "apiVersion": "apps/v1",
         "kind": "Deployment",
@@ -225,7 +225,7 @@ def generate_k8s_manifests(
             },
         },
     }
-    
+
     service = {
         "apiVersion": "v1",
         "kind": "Service",
@@ -236,9 +236,9 @@ def generate_k8s_manifests(
             "type": "ClusterIP",
         },
     }
-    
+
     docs = [deployment, service]
-    
+
     if host:
         ingress = {
             "apiVersion": "networking.k8s.io/v1",
@@ -267,7 +267,7 @@ def generate_k8s_manifests(
             },
         }
         docs.append(ingress)
-    
+
     return "---\n".join(yaml.dump(doc, default_flow_style=False) for doc in docs)
 
 # Test:
@@ -317,12 +317,12 @@ def parse_nginx_logs(log_lines: list[str]) -> dict:
         "methods": Counter(),
         "errors": [],
     }
-    
+
     for line in log_lines:
         match = NGINX_LOG_PATTERN.match(line.strip())
         if not match:
             continue
-        
+
         data = match.groupdict()
         stats["total_requests"] += 1
         stats["status_counts"][data["status"]] += 1
@@ -330,7 +330,7 @@ def parse_nginx_logs(log_lines: list[str]) -> dict:
         stats["top_ips"][data["ip"]] += 1
         stats["total_bytes"] += int(data["bytes"])
         stats["methods"][data["method"]] += 1
-        
+
         status = int(data["status"])
         if status >= 500:
             stats["error_paths"][data["path"]] += 1
@@ -340,13 +340,13 @@ def parse_nginx_logs(log_lines: list[str]) -> dict:
                 "status": status,
                 "ip": data["ip"],
             })
-    
+
     # Compute summary
     total = stats["total_requests"]
     errors = sum(v for k, v in stats["status_counts"].items() if int(k) >= 500)
     stats["error_rate"] = round(errors / total * 100, 2) if total > 0 else 0
     stats["bytes_mb"] = round(stats["total_bytes"] / 1048576, 2)
-    
+
     return stats
 
 def print_report(stats: dict):
@@ -357,20 +357,20 @@ def print_report(stats: dict):
     print(f"Total Requests: {stats['total_requests']}")
     print(f"Error Rate: {stats['error_rate']}%")
     print(f"Total Data: {stats['bytes_mb']} MB")
-    
+
     print(f"\nStatus Code Distribution:")
     for code, count in stats["status_counts"].most_common():
         pct = round(count / stats["total_requests"] * 100, 1)
         print(f"  {code}: {count} ({pct}%)")
-    
+
     print(f"\nTop 5 Paths:")
     for path, count in stats["top_paths"].most_common(5):
         print(f"  {path}: {count}")
-    
+
     print(f"\nTop Error Paths:")
     for path, count in stats["error_paths"].most_common(5):
         print(f"  {path}: {count}")
-    
+
     print(f"\nTop IPs:")
     for ip, count in stats["top_ips"].most_common(5):
         print(f"  {ip}: {count}")
@@ -401,28 +401,28 @@ def detect_error_spikes(
     spike_threshold: float = 3.0,  # 3x baseline = spike
 ) -> list[dict]:
     """Detect windows where error rate exceeds baseline by threshold."""
-    
+
     # Bucket events into windows
     if not events:
         return []
-    
+
     min_time = min(e["timestamp"] for e in events)
     max_time = max(e["timestamp"] for e in events)
     window = timedelta(minutes=window_minutes)
-    
+
     buckets = defaultdict(lambda: {"total": 0, "errors": 0})
-    
+
     for event in events:
         bucket_key = min_time + window * int((event["timestamp"] - min_time) / window)
         buckets[bucket_key]["total"] += 1
         if event["status"] >= 500:
             buckets[bucket_key]["errors"] += 1
-    
+
     # Calculate baseline error rate
     total_errors = sum(b["errors"] for b in buckets.values())
     total_requests = sum(b["total"] for b in buckets.values())
     baseline_rate = total_errors / total_requests if total_requests > 0 else 0
-    
+
     # Find spikes
     spikes = []
     for time_bucket, counts in sorted(buckets.items()):
@@ -438,7 +438,7 @@ def detect_error_spikes(
                 "errors": counts["errors"],
                 "total": counts["total"],
             })
-    
+
     return spikes
 
 # Test
@@ -555,51 +555,51 @@ logger = logging.getLogger(__name__)
 
 class APIClient:
     """Resilient API client with retry, backoff, and circuit breaker."""
-    
+
     def __init__(self, base_url: str, max_retries: int = 3, timeout: int = 10):
         self.base_url = base_url.rstrip("/")
         self.max_retries = max_retries
         self.timeout = timeout
         self.session = requests.Session()
         self.session.headers.update({"Content-Type": "application/json"})
-    
+
     def _request(self, method: str, path: str, **kwargs) -> requests.Response:
         """Make request with exponential backoff retry."""
         url = f"{self.base_url}/{path.lstrip('/')}"
         kwargs.setdefault("timeout", self.timeout)
-        
+
         last_exception = None
         for attempt in range(self.max_retries + 1):
             try:
                 response = self.session.request(method, url, **kwargs)
-                
+
                 # Don't retry client errors (4xx), only server errors (5xx)
                 if response.status_code < 500:
                     return response
-                
+
                 logger.warning(f"Server error {response.status_code} on {method} {path} (attempt {attempt + 1})")
                 last_exception = Exception(f"HTTP {response.status_code}")
-                
+
             except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
                 logger.warning(f"Request failed: {e} (attempt {attempt + 1})")
                 last_exception = e
-            
+
             if attempt < self.max_retries:
                 wait = (2 ** attempt) + (0.1 * attempt)  # Exponential backoff
                 logger.info(f"Retrying in {wait:.1f}s...")
                 time.sleep(wait)
-        
+
         raise last_exception
-    
+
     def get(self, path: str, **kwargs) -> requests.Response:
         return self._request("GET", path, **kwargs)
-    
+
     def post(self, path: str, **kwargs) -> requests.Response:
         return self._request("POST", path, **kwargs)
-    
+
     def put(self, path: str, **kwargs) -> requests.Response:
         return self._request("PUT", path, **kwargs)
-    
+
     def delete(self, path: str, **kwargs) -> requests.Response:
         return self._request("DELETE", path, **kwargs)
 
@@ -633,10 +633,10 @@ def get_pod_status(namespace: str = "default") -> list[dict]:
         config.load_kube_config()
     except:
         config.load_incluster_config()
-    
+
     v1 = client.CoreV1Api()
     pods = v1.list_namespaced_pod(namespace)
-    
+
     results = []
     for pod in pods.items:
         pod_info = {
@@ -648,7 +648,7 @@ def get_pod_status(namespace: str = "default") -> list[dict]:
             "containers": [],
             "issues": [],
         }
-        
+
         # Check container statuses
         if pod.status.container_statuses:
             for cs in pod.status.container_statuses:
@@ -658,7 +658,7 @@ def get_pod_status(namespace: str = "default") -> list[dict]:
                     "restarts": cs.restart_count,
                     "state": "unknown",
                 }
-                
+
                 if cs.state.running:
                     container["state"] = "running"
                 elif cs.state.waiting:
@@ -667,14 +667,14 @@ def get_pod_status(namespace: str = "default") -> list[dict]:
                 elif cs.state.terminated:
                     container["state"] = f"terminated: {cs.state.terminated.reason}"
                     pod_info["issues"].append(f"{cs.name}: {cs.state.terminated.reason}")
-                
+
                 pod_info["containers"].append(container)
                 pod_info["restarts"] += cs.restart_count
-            
+
             pod_info["ready"] = all(cs.ready for cs in pod.status.container_statuses)
-        
+
         results.append(pod_info)
-    
+
     return results
 
 def find_unhealthy_pods(namespace: str = "default") -> list[dict]:
@@ -694,7 +694,7 @@ def get_pods_via_kubectl(namespace: str = "default") -> list[dict]:
     )
     if result.returncode != 0:
         raise RuntimeError(f"kubectl failed: {result.stderr}")
-    
+
     data = json.loads(result.stdout)
     pods = []
     for item in data.get("items", []):
@@ -726,10 +726,10 @@ def get_namespace_resources() -> list[dict]:
     )
     if result.returncode != 0:
         raise RuntimeError(f"kubectl failed: {result.stderr}")
-    
+
     data = json.loads(result.stdout)
     ns_resources = {}
-    
+
     for pod in data.get("items", []):
         ns = pod["metadata"]["namespace"]
         if ns not in ns_resources:
@@ -738,25 +738,25 @@ def get_namespace_resources() -> list[dict]:
                 "cpu_requests_m": 0, "cpu_limits_m": 0,
                 "memory_requests_mi": 0, "memory_limits_mi": 0,
             }
-        
+
         ns_resources[ns]["pods"] += 1
-        
+
         for container in pod["spec"].get("containers", []):
             ns_resources[ns]["containers"] += 1
             resources = container.get("resources", {})
-            
+
             # Parse CPU (e.g., "100m" or "0.5")
             cpu_req = resources.get("requests", {}).get("cpu", "0")
             cpu_lim = resources.get("limits", {}).get("cpu", "0")
             ns_resources[ns]["cpu_requests_m"] += parse_cpu(cpu_req)
             ns_resources[ns]["cpu_limits_m"] += parse_cpu(cpu_lim)
-            
+
             # Parse memory (e.g., "128Mi" or "1Gi")
             mem_req = resources.get("requests", {}).get("memory", "0")
             mem_lim = resources.get("limits", {}).get("memory", "0")
             ns_resources[ns]["memory_requests_mi"] += parse_memory(mem_req)
             ns_resources[ns]["memory_limits_mi"] += parse_memory(mem_lim)
-    
+
     return [{"namespace": ns, **data} for ns, data in sorted(ns_resources.items())]
 
 def parse_cpu(value: str) -> int:
@@ -843,13 +843,13 @@ def get_dir_sizes(root: str, max_depth: int = 2) -> list[dict]:
     """Get directory sizes up to max_depth."""
     results = []
     root_path = Path(root)
-    
+
     for dirpath, dirnames, filenames in os.walk(root_path):
         depth = len(Path(dirpath).relative_to(root_path).parts)
         if depth > max_depth:
             dirnames.clear()  # Don't recurse deeper
             continue
-        
+
         total_size = 0
         file_count = 0
         for f in filenames:
@@ -859,7 +859,7 @@ def get_dir_sizes(root: str, max_depth: int = 2) -> list[dict]:
                 file_count += 1
             except (OSError, PermissionError):
                 continue
-        
+
         if total_size > 0:
             results.append({
                 "path": dirpath,
@@ -867,7 +867,7 @@ def get_dir_sizes(root: str, max_depth: int = 2) -> list[dict]:
                 "size_human": human_size(total_size),
                 "files": file_count,
             })
-    
+
     return sorted(results, key=lambda x: x["size_bytes"], reverse=True)
 
 def human_size(size_bytes: int) -> str:
@@ -908,18 +908,18 @@ app_state = {
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         app_state["request_count"] += 1
-        
+
         if self.path == "/healthz":
             # Liveness: Is the process alive?
             self.send_json(200, {"status": "ok", "uptime": time.time() - app_state["start_time"]})
-        
+
         elif self.path == "/readyz":
             # Readiness: Is the service ready to accept traffic?
             if app_state["ready"]:
                 self.send_json(200, {"status": "ready"})
             else:
                 self.send_json(503, {"status": "not ready", "reason": "still initializing"})
-        
+
         elif self.path == "/metrics":
             # Prometheus-style metrics
             metrics = (
@@ -937,16 +937,16 @@ class HealthHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/plain")
             self.end_headers()
             self.wfile.write(metrics.encode())
-        
+
         else:
             self.send_json(404, {"error": "not found"})
-    
+
     def send_json(self, code: int, data: dict):
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
         self.wfile.write(json.dumps(data).encode())
-    
+
     def log_message(self, format, *args):
         pass  # Suppress default logging
 
@@ -957,9 +957,9 @@ def start_server(port: int = 8080):
         time.sleep(2)
         app_state["ready"] = True
         print("✅ Service ready")
-    
+
     threading.Thread(target=init, daemon=True).start()
-    
+
     server = HTTPServer(("0.0.0.0", port), HealthHandler)
     print(f"🚀 Server starting on port {port}")
     server.serve_forever()
@@ -983,23 +983,23 @@ import json
 def main():
     parser = argparse.ArgumentParser(description="Platform Service Health Checker")
     subparsers = parser.add_subparsers(dest="command")
-    
+
     # 'check' command
     check_parser = subparsers.add_parser("check", help="Check service health")
     check_parser.add_argument("--service", "-s", required=True, help="Service name")
     check_parser.add_argument("--namespace", "-n", default="production", help="K8s namespace")
     check_parser.add_argument("--format", "-f", choices=["text", "json"], default="text")
-    
+
     # 'list' command
     list_parser = subparsers.add_parser("list", help="List all services")
     list_parser.add_argument("--namespace", "-n", default="production")
-    
+
     # 'report' command
     report_parser = subparsers.add_parser("report", help="Generate health report")
     report_parser.add_argument("--output", "-o", default="-", help="Output file (- for stdout)")
-    
+
     args = parser.parse_args()
-    
+
     if args.command == "check":
         result = {"service": args.service, "namespace": args.namespace, "status": "healthy"}
         if args.format == "json":
@@ -1008,12 +1008,12 @@ def main():
             print(f"Service: {result['service']}")
             print(f"Namespace: {result['namespace']}")
             print(f"Status: ✅ {result['status']}")
-    
+
     elif args.command == "list":
         services = ["property-api", "search-service", "auth-service"]
         for s in services:
             print(f"  • {s} ({args.namespace})")
-    
+
     elif args.command == "report":
         report = {"total": 5, "healthy": 4, "unhealthy": 1}
         output = json.dumps(report, indent=2)
@@ -1023,7 +1023,7 @@ def main():
             with open(args.output, "w") as f:
                 f.write(output)
             print(f"Report written to {args.output}")
-    
+
     else:
         parser.print_help()
 
@@ -1059,42 +1059,42 @@ class TestDeepMerge:
         override = {"b": 3, "c": 4}
         result = deep_merge(base, override)
         assert result == {"a": 1, "b": 3, "c": 4}
-    
+
     def test_nested_merge(self):
         base = {"app": {"name": "test", "port": 80}}
         override = {"app": {"port": 8080}}
         result = deep_merge(base, override)
         assert result["app"]["name"] == "test"  # Preserved
         assert result["app"]["port"] == 8080  # Overridden
-    
+
     def test_deep_nested_merge(self):
         base = {"a": {"b": {"c": 1, "d": 2}}}
         override = {"a": {"b": {"c": 3}}}
         result = deep_merge(base, override)
         assert result["a"]["b"]["c"] == 3
         assert result["a"]["b"]["d"] == 2
-    
+
     def test_override_dict_with_scalar(self):
         base = {"a": {"nested": True}}
         override = {"a": "flat"}
         result = deep_merge(base, override)
         assert result["a"] == "flat"
-    
+
     def test_empty_override(self):
         base = {"a": 1}
         result = deep_merge(base, {})
         assert result == {"a": 1}
-    
+
     def test_empty_base(self):
         result = deep_merge({}, {"a": 1})
         assert result == {"a": 1}
-    
+
     def test_does_not_mutate_original(self):
         base = {"a": {"b": 1}}
         override = {"a": {"c": 2}}
         result = deep_merge(base, override)
         assert "c" not in base["a"]  # Original unchanged
-    
+
     def test_list_values_replaced_not_merged(self):
         base = {"tags": ["v1", "stable"]}
         override = {"tags": ["v2"]}
@@ -1114,29 +1114,29 @@ from collections import deque
 
 class RateLimiter:
     """Sliding window rate limiter."""
-    
+
     def __init__(self, max_requests: int, window_seconds: int):
         self.max_requests = max_requests
         self.window_seconds = window_seconds
         self.requests: dict[str, deque] = {}  # client_id → timestamps
-    
+
     def allow(self, client_id: str) -> bool:
         """Check if request from client_id is allowed."""
         now = time.time()
-        
+
         if client_id not in self.requests:
             self.requests[client_id] = deque()
-        
+
         window = self.requests[client_id]
-        
+
         # Remove expired entries
         while window and window[0] <= now - self.window_seconds:
             window.popleft()
-        
+
         if len(window) < self.max_requests:
             window.append(now)
             return True
-        
+
         return False
 
 # Test:
@@ -1154,34 +1154,34 @@ import time
 
 class TTLCache:
     """LRU cache with TTL (time-to-live)."""
-    
+
     def __init__(self, max_size: int = 100, ttl_seconds: int = 300):
         self.max_size = max_size
         self.ttl = ttl_seconds
         self.cache: OrderedDict[str, tuple] = OrderedDict()  # key → (value, expiry_time)
-    
+
     def get(self, key: str):
         """Get value from cache. Returns None if expired or missing."""
         if key not in self.cache:
             return None
-        
+
         value, expiry = self.cache[key]
         if time.time() > expiry:
             del self.cache[key]
             return None
-        
+
         self.cache.move_to_end(key)  # LRU: mark as recently used
         return value
-    
+
     def set(self, key: str, value):
         """Set value in cache."""
         if key in self.cache:
             self.cache.move_to_end(key)
         self.cache[key] = (value, time.time() + self.ttl)
-        
+
         if len(self.cache) > self.max_size:
             self.cache.popitem(last=False)  # Remove oldest
-    
+
     def stats(self) -> dict:
         now = time.time()
         valid = sum(1 for _, (_, exp) in self.cache.items() if exp > now)
@@ -1222,11 +1222,11 @@ async def fetch_url(session: aiohttp.ClientSession, url: str) -> dict:
 async def fetch_all(urls: list[str], max_concurrent: int = 10) -> list[dict]:
     """Fetch multiple URLs concurrently with concurrency limit."""
     semaphore = asyncio.Semaphore(max_concurrent)
-    
+
     async def bounded_fetch(session, url):
         async with semaphore:
             return await fetch_url(session, url)
-    
+
     async with aiohttp.ClientSession() as session:
         tasks = [bounded_fetch(session, url) for url in urls]
         return await asyncio.gather(*tasks)

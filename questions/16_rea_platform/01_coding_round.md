@@ -345,7 +345,7 @@ NETWORK_POLICY = {
 def provision_namespace(team: str, env: str, dry_run: bool = True):
     """Provision a namespace with guardrails"""
     ns_name = f"{team}-{env}"
-    
+
     # Create namespace
     ns = NAMESPACE_TEMPLATE.copy()
     ns["metadata"]["name"] = ns_name
@@ -353,15 +353,15 @@ def provision_namespace(team: str, env: str, dry_run: bool = True):
     ns["metadata"]["labels"]["team"] = team
 
     resources = [ns, RESOURCE_QUOTA, NETWORK_POLICY]
-    
+
     for resource in resources:
         if "metadata" in resource and "namespace" not in resource["metadata"]:
             resource["metadata"]["namespace"] = ns_name
-        
+
         cmd = ["kubectl", "apply", "-f", "-"]
         if dry_run:
             cmd.append("--dry-run=client")
-        
+
         result = subprocess.run(
             cmd, input=yaml.dump(resource), capture_output=True, text=True
         )

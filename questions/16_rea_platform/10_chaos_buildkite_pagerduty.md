@@ -300,12 +300,12 @@ steady_state_metrics:
     source: prometheus
     query: "sli:availability:ratio_rate5m{service='property-api'}"
     expected: ">= 0.99"
-  
+
   - metric: latency_p99
     source: prometheus
     query: "sli:latency_p99:5m{service='property-api'}"
     expected: "< 0.5"  # seconds
-  
+
   - metric: pod_count
     source: kubernetes
     query: "kubectl get pods -l app=property-api -n production --no-headers | wc -l"
@@ -934,7 +934,7 @@ receivers:
   - name: 'default'
     slack_configs:
       - channel: '#alerts'
-  
+
   - name: 'pagerduty-critical'
     pagerduty_configs:
       - service_key: '<PAGERDUTY_SERVICE_KEY>'
@@ -944,7 +944,7 @@ receivers:
           firing: '{{ .Alerts.Firing | len }}'
           dashboard: '{{ .CommonAnnotations.dashboard }}'
           runbook: '{{ .CommonAnnotations.runbook }}'
-  
+
   - name: 'pagerduty-warning'
     pagerduty_configs:
       - service_key: '<PAGERDUTY_SERVICE_KEY>'
@@ -981,7 +981,7 @@ def trigger_pagerduty_incident(
             "text": "Grafana Dashboard"
         }],
     }
-    
+
     resp = requests.post(
         "https://events.pagerduty.com/v2/enqueue",
         json=payload,
