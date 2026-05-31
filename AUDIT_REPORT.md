@@ -9,7 +9,7 @@
 |--------|-------|
 | Total files audited | 65 .md files |
 | Total answer content | ~19,400 lines across all answers.md |
-| Total learn guide content | ~7,700 lines across all learn.md |
+| Total learn guide content | ~7,700 lines across all README.md (learn) |
 | Total question-only files | ~1,200 lines (question lists) |
 | Overall quality rating | **4.2 / 5** — Excellent for most topics |
 | Critical gaps found | 3 topics with missing depth |
@@ -45,7 +45,7 @@
 | File | Lines | Depth Rating |
 |------|-------|-------------|
 | `answers.md` | 732 | ⭐⭐⭐⭐⭐ 5/5 |
-| `learn.md` | 489 | ⭐⭐⭐⭐⭐ 5/5 |
+| `README.md (learn)` | 489 | ⭐⭐⭐⭐⭐ 5/5 |
 | `basics.md` | 30 | Questions only |
 | `intermediate_advanced.md` | 41 | Questions only |
 
@@ -59,7 +59,7 @@
 | File | Lines | Depth Rating |
 |------|-------|-------------|
 | `answers.md` | 985 | ⭐⭐⭐⭐⭐ 5/5 |
-| `learn.md` | 540 | ⭐⭐⭐⭐⭐ 5/5 |
+| `README.md (learn)` | 540 | ⭐⭐⭐⭐⭐ 5/5 |
 | `basics_architecture.md` | 31 | Questions only |
 | `pipelines.md` | 42 | Questions only |
 | `shared_libraries_groovy_admin.md` | 41 | Questions only |
@@ -74,7 +74,7 @@
 | File | Lines | Depth Rating |
 |------|-------|-------------|
 | `answers.md` | 612 | ⭐⭐⭐⭐ 4/5 |
-| `learn.md` | 516 | ⭐⭐⭐⭐⭐ 5/5 |
+| `README.md (learn)` | 516 | ⭐⭐⭐⭐⭐ 5/5 |
 | `basics_core.md` | 30 | Questions only |
 | `advanced_operations.md` | 63 | Questions only |
 | `workflows_gerrit_repo.md` | 47 | Questions only |
@@ -92,7 +92,7 @@
 | File | Lines | Depth Rating |
 |------|-------|-------------|
 | `answers.md` | 1406 | ⭐⭐⭐⭐⭐ 5/5 |
-| `learn.md` | 528 | ⭐⭐⭐⭐⭐ 5/5 |
+| `README.md (learn)` | 528 | ⭐⭐⭐⭐⭐ 5/5 |
 | `basics_dockerfile.md` | 35 | Questions only |
 | `advanced_networking_security.md` | 59 | Questions only |
 
@@ -109,7 +109,7 @@
 | File | Lines | Depth Rating |
 |------|-------|-------------|
 | `answers.md` | 3014 | ⭐⭐⭐⭐⭐ 5/5 |
-| `learn.md` | 741 | ⭐⭐⭐⭐⭐ 5/5 |
+| `README.md (learn)` | 741 | ⭐⭐⭐⭐⭐ 5/5 |
 | `basics_workloads.md` | 41 | Questions only |
 | `networking_services.md` | 41 | Questions only |
 | `config_storage_security_helm.md` | 75 | Questions only |
@@ -135,7 +135,7 @@
 | File | Lines | Depth Rating |
 |------|-------|-------------|
 | `answers.md` | 1179 | ⭐⭐⭐⭐⭐ 5/5 |
-| `learn.md` | 451 | ⭐⭐⭐⭐ 4/5 |
+| `README.md (learn)` | 451 | ⭐⭐⭐⭐ 4/5 |
 | `basics_core.md` | 48 | Questions only |
 | `os_subprocess_apis_advanced.md` | 68 | Questions only |
 
@@ -153,7 +153,7 @@
 | File | Lines | Depth Rating |
 |------|-------|-------------|
 | `answers.md` | 1210 | ⭐⭐⭐⭐⭐ 5/5 |
-| `learn.md` | 520 | ⭐⭐⭐⭐⭐ 5/5 |
+| `README.md (learn)` | 520 | ⭐⭐⭐⭐⭐ 5/5 |
 | `files_text_processing.md` | 75 | Questions only |
 | `process_networking_systemd_storage.md` | 105 | Questions only |
 
@@ -167,7 +167,7 @@
 | File | Lines | Depth Rating |
 |------|-------|-------------|
 | `answers.md` | 918 | ⭐⭐⭐⭐⭐ 5/5 |
-| `learn.md` | 439 | ⭐⭐⭐⭐ 4/5 |
+| `README.md (learn)` | 439 | ⭐⭐⭐⭐ 4/5 |
 | `complete.md` | 80 | Questions only |
 
 **Assessment**: Excellent. 70 questions with full code examples. Covers variables, quoting, loops, conditionals, functions, arrays, error handling, signal trapping, real-world scripts (log parser, health checker, backup script).
@@ -180,7 +180,7 @@
 | File | Lines | Depth Rating |
 |------|-------|-------------|
 | `answers.md` | 702 | ⭐⭐⭐⭐⭐ 5/5 |
-| `learn.md` | 476 | ⭐⭐⭐⭐ 4/5 |
+| `README.md (learn)` | 476 | ⭐⭐⭐⭐ 4/5 |
 | `complete.md` | 64 | Questions only |
 
 **Assessment**: Excellent. 55 questions answered. Covers pipeline YAML structure, triggers, templates, multi-stage, approval gates, service connections, variable groups, Key Vault integration, comparison with Jenkins/GitHub Actions.
@@ -193,7 +193,7 @@
 | File | Lines | Depth Rating |
 |------|-------|-------------|
 | `answers.md` | 1591 | ⭐⭐⭐⭐⭐ 5/5 |
-| `learn.md` | 742 | ⭐⭐⭐⭐⭐ 5/5 |
+| `README.md (learn)` | 742 | ⭐⭐⭐⭐⭐ 5/5 |
 | `complete.md` | 79 | Questions only |
 
 **Assessment**: EXCELLENT. 70+ questions with thorough coverage. State management, modules, workspaces, backends, `terraform import`, plan/apply flow, Ansible playbooks, roles, inventories, idempotency, Terraform + Ansible together.
@@ -209,7 +209,7 @@
 | File | Lines | Depth Rating |
 |------|-------|-------------|
 | `answers.md` | 520 | ⭐⭐⭐⭐ 4/5 |
-| `learn.md` | 603 | ⭐⭐⭐⭐⭐ 5/5 |
+| `README.md (learn)` | 603 | ⭐⭐⭐⭐⭐ 5/5 |
 | `complete.md` | 74 | Questions only |
 
 **Assessment**: Good. 65 questions. Three pillars, Prometheus (architecture, PromQL, alerting), Grafana, ELK/Loki, SLI/SLO/SLA, RED/USE methods, four golden signals. Learn guide is more thorough than answers.
@@ -226,7 +226,7 @@
 | File | Lines | Depth Rating |
 |------|-------|-------------|
 | `answers.md` | 389 | ⭐⭐⭐⭐ 4/5 |
-| `learn.md` | 590 | ⭐⭐⭐⭐⭐ 5/5 |
+| `README.md (learn)` | 590 | ⭐⭐⭐⭐⭐ 5/5 |
 | `complete.md` | 70 | Questions only |
 
 **Assessment**: Good. 60 questions covering OWASP Top 10, shift-left, SAST/DAST/SCA, container security, secrets management, Trivy, SonarQube, SBOM, supply chain security. Learn guide adds good depth.
@@ -242,7 +242,7 @@
 | File | Lines | Depth Rating |
 |------|-------|-------------|
 | `answers.md` | 546 | ⭐⭐⭐⭐ 4/5 |
-| `learn.md` | 422 | ⭐⭐⭐⭐ 4/5 |
+| `README.md (learn)` | 422 | ⭐⭐⭐⭐ 4/5 |
 | `complete.md` | 77 | Questions only |
 
 **Assessment**: Good for awareness level. 70 questions. Go basics (goroutines, channels, cross-compilation), Yocto (BitBake, recipes, layers, BSP, sstate-cache), embedded CI pipeline, optical networking context for Ciena.
@@ -258,7 +258,7 @@
 | File | Lines | Depth Rating |
 |------|-------|-------------|
 | `answers.md` | 381 | ⭐⭐⭐⭐ 4/5 |
-| `learn.md` | 386 | ⭐⭐⭐⭐ 4/5 |
+| `README.md (learn)` | 386 | ⭐⭐⭐⭐ 4/5 |
 | `complete.md` | 65 | Questions only |
 
 **Assessment**: Good. 55 questions. OSI model, TCP/IP, subnetting, DNS, HTTP/HTTPS, TLS, load balancing, NAT, firewalls, VPN. Adequate for DevOps interview.
@@ -275,7 +275,7 @@
 | File | Lines | Depth Rating |
 |------|-------|-------------|
 | `answers.md` | 329 | ⭐⭐⭐⭐ 4/5 |
-| `learn.md` | 551 | ⭐⭐⭐⭐⭐ 5/5 |
+| `README.md (learn)` | 551 | ⭐⭐⭐⭐⭐ 5/5 |
 | `complete.md` | 90 | Questions only |
 
 **Assessment**: Good. Covers incident response, deployment troubleshooting, design scenarios (CI/CD for 15 microservices, monitoring strategy, DR), behavioral STAR stories. Learn guide is excellent with templates.
@@ -290,7 +290,7 @@
 ### 16_rea_platform — REA Platform Prep
 | File | Lines | Depth Rating |
 |------|-------|-------------|
-| `00_prep_overview.md` | 62 | ⭐⭐⭐ 3/5 |
+| `README.md (overview)` | 62 | ⭐⭐⭐ 3/5 |
 | `01_coding_round.md` | 516 | ⭐⭐⭐⭐ 4/5 |
 | `02_fixing_round.md` | 229 | ⭐⭐⭐⭐ 4/5 |
 | `03_technical_round.md` | 294 | ⭐⭐⭐⭐ 4/5 |
@@ -401,7 +401,7 @@ These files serve as self-test checklists — all have corresponding answers in 
 | `07_linux/process_networking_systemd_storage.md` | 105 | Self-test questions |
 | `08-15 complete.md files` | 64-90 | Self-test questions |
 
-### Learn.md files (teaching guides)
+### README.md files (learn guides) (teaching guides)
 All are substantial (386-742 lines) with diagrams and explanations. Consistently high quality.
 
 ---

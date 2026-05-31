@@ -1,3 +1,17 @@
+> **[← Back to All Topics](../README.md)**
+
+## 📁 Files in This Section
+
+| File | Description |
+|------|-------------|
+| **README.md** | Deep-dive learning guide (this file) |
+| [basics_core.md](basics_core.md) | Core basics questions |
+| [advanced_operations.md](advanced_operations.md) | Advanced operations questions |
+| [workflows_gerrit_repo.md](workflows_gerrit_repo.md) | Workflows, Gerrit & Repo |
+| [answers.md](answers.md) | All answers |
+
+---
+
 # Git — Deep-Dive Learning Guide
 
 ---

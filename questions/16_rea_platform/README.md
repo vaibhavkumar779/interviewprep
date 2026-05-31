@@ -1,3 +1,24 @@
+> **[← Back to All Topics](../README.md)**
+
+## 📁 Files in This Section
+
+| File | Description |
+|------|-------------|
+| **README.md** | Prep overview & interview structure (this file) |
+| [01_coding_round.md](01_coding_round.md) | Coding round prep |
+| [02_fixing_round.md](02_fixing_round.md) | Fixing round prep |
+| [03_technical_round.md](03_technical_round.md) | Technical round prep |
+| [04_values_round.md](04_values_round.md) | Values round prep |
+| [05_go_complete_guide.md](05_go_complete_guide.md) | Go complete guide |
+| [06_aws_deepdive.md](06_aws_deepdive.md) | AWS deep dive |
+| [07_sli_slo_sla_guide.md](07_sli_slo_sla_guide.md) | SLI/SLO/SLA guide |
+| [08_splunk_guide.md](08_splunk_guide.md) | Splunk guide |
+| [09_python_practice.md](09_python_practice.md) | Python practice |
+| [10_chaos_buildkite_pagerduty.md](10_chaos_buildkite_pagerduty.md) | Chaos, Buildkite & PagerDuty |
+| [11_resume_walkthrough.md](11_resume_walkthrough.md) | Resume walkthrough |
+
+---
+
 # REA Group — Senior Engineer Platform | Interview Prep
 
 ## Company: REA Group

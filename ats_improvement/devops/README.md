@@ -1,3 +1,14 @@
+> **[← Back to ATS Improvement](../README.md)**
+
+## 📁 Files in This Section
+
+| File | Description |
+|------|-------------|
+| **README.md** | ATS score analysis (this file) |
+| [LEARNING_TOPICS.md](LEARNING_TOPICS.md) | Learning topics to close gaps |
+
+---
+
 # DevOps Engineer — ATS Score Analysis
 
 ## Current Score: 92/100

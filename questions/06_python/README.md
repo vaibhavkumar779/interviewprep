@@ -1,3 +1,16 @@
+> **[← Back to All Topics](../README.md)**
+
+## 📁 Files in This Section
+
+| File | Description |
+|------|-------------|
+| **README.md** | Deep-dive learning guide (this file) |
+| [basics_core.md](basics_core.md) | Core basics questions |
+| [os_subprocess_apis_advanced.md](os_subprocess_apis_advanced.md) | OS, subprocess, APIs & advanced |
+| [answers.md](answers.md) | All answers |
+
+---
+
 # Python — Deep-Dive Learning Guide (DevOps Focus)
 
 ---

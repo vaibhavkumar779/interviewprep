@@ -1,6 +1,6 @@
 # DevOps ATS Improvement — Learning Topics
 
-> After studying each topic, you can add the corresponding bullet points from `ATS_ANALYSIS.md` to your resume.
+> After studying each topic, you can add the corresponding bullet points from `README.md` to your resume.
 
 ---
 

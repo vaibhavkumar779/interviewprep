@@ -1,6 +1,6 @@
 # SRE ATS Improvement — Learning Topics
 
-> After studying each topic, add the corresponding bullet points from `ATS_ANALYSIS.md` to your resume.
+> After studying each topic, add the corresponding bullet points from `README.md` to your resume.
 
 ---
 

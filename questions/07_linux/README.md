@@ -1,3 +1,16 @@
+> **[← Back to All Topics](../README.md)**
+
+## 📁 Files in This Section
+
+| File | Description |
+|------|-------------|
+| **README.md** | Deep-dive learning guide (this file) |
+| [files_text_processing.md](files_text_processing.md) | Files & text processing questions |
+| [process_networking_systemd_storage.md](process_networking_systemd_storage.md) | Process, networking, systemd & storage |
+| [answers.md](answers.md) | All answers |
+
+---
+
 # Linux Administration — Deep-Dive Learning Guide
 
 ---
