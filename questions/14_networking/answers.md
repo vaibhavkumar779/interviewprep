@@ -469,3 +469,260 @@ Hardened server in public subnet used as gateway to private resources. SSH to ba
 ssh -J bastion-user@bastion internal-user@internal-server
 # Or ProxyJump in SSH config
 ```
+
+---
+---
+
+# PART 4: ADVANCED NETWORKING — Service Mesh, DNS, Troubleshooting, Cloud Networking
+
+---
+
+## Service Mesh (Istio / Linkerd)
+
+**56. What is a Service Mesh? Why use one?**
+
+```
+Service Mesh Architecture:
+
+  WITHOUT Service Mesh:
+  ┌──────────┐         ┌──────────┐
+  │ Service A │────────▶│ Service B │   Each service handles:
+  │ (app code │         │ (app code │   - retries
+  │  + retry  │         │  + retry  │   - timeouts
+  │  + TLS    │         │  + TLS    │   - auth
+  │  + metrics│         │  + metrics│   - tracing
+  │  + auth)  │         │  + auth)  │   ALL IN APP CODE!
+  └──────────┘         └──────────┘
+
+  WITH Service Mesh (Istio):
+  ┌───────────────────┐         ┌───────────────────┐
+  │ Pod               │         │ Pod               │
+  │ ┌───────┐ ┌─────┐│         │┌─────┐ ┌───────┐ │
+  │ │Service│ │Envoy││←───────→││Envoy│ │Service│ │
+  │ │   A   │ │proxy││  mTLS   ││proxy│ │   B   │ │
+  │ │(clean │ │     ││         ││     │ │(clean │ │
+  │ │ code) │ │     ││         ││     │ │ code) │ │
+  │ └───────┘ └─────┘│         │└─────┘ └───────┘ │
+  └───────────────────┘         └───────────────────┘
+         Sidecar handles: retries, TLS, auth, metrics, tracing
+         App code stays CLEAN — only business logic
+
+  Control Plane (istiod):
+  ┌────────────────────────────────────────┐
+  │  Config → distribute to all proxies    │
+  │  Certificates → mTLS between services │
+  │  Service Discovery → where is what    │
+  └────────────────────────────────────────┘
+```
+
+```
+Service Mesh Features:
+
+  ┌────────────────────┬───────────────────────────────────┐
+  │ Feature            │ What it does                      │
+  ├────────────────────┼───────────────────────────────────┤
+  │ mTLS               │ Encrypt ALL service-to-service    │
+  │                    │ traffic automatically             │
+  ├────────────────────┼───────────────────────────────────┤
+  │ Traffic Management │ Canary deploys, A/B testing,      │
+  │                    │ traffic splitting, mirroring      │
+  ├────────────────────┼───────────────────────────────────┤
+  │ Retries/Timeouts   │ Automatic retry with backoff,     │
+  │                    │ circuit breaker                   │
+  ├────────────────────┼───────────────────────────────────┤
+  │ Observability      │ Distributed tracing, metrics,     │
+  │                    │ access logs — zero code changes   │
+  ├────────────────────┼───────────────────────────────────┤
+  │ Authorization      │ Policy: service A can call B      │
+  │                    │ but not C                         │
+  ├────────────────────┼───────────────────────────────────┤
+  │ Rate Limiting      │ Limit requests per service        │
+  └────────────────────┴───────────────────────────────────┘
+
+  Istio vs Linkerd:
+  ├── Istio: Feature-rich, complex, Envoy proxy, more config
+  └── Linkerd: Simpler, lighter, Rust proxy, easier to operate
+```
+
+---
+
+## DNS Deep Dive
+
+**57. DNS resolution flow — what happens when you type a URL?**
+
+```
+Full DNS Resolution:
+
+  Browser: "api.example.com"
+      │
+      ▼
+  1. Browser cache (check first)
+      │ miss
+      ▼
+  2. OS cache (/etc/hosts, systemd-resolved)
+      │ miss
+      ▼
+  3. Recursive resolver (ISP or 8.8.8.8/1.1.1.1)
+      │ miss
+      ▼
+  4. Root nameserver (.) → "go ask .com"
+      │
+      ▼
+  5. TLD nameserver (.com) → "go ask ns1.example.com"
+      │
+      ▼
+  6. Authoritative nameserver (example.com)
+      → "api.example.com = 93.184.216.34"
+      │
+      ▼
+  7. Response cached at each level (TTL-based)
+      │
+      ▼
+  8. Browser connects to 93.184.216.34
+
+  Record Types:
+  A      → Name → IPv4 (api.example.com → 93.184.216.34)
+  AAAA   → Name → IPv6
+  CNAME  → Name → Another name (alias)
+  MX     → Mail exchange servers
+  NS     → Nameservers for domain
+  TXT    → Text records (SPF, DKIM, verification)
+  SRV    → Service location (port + host)
+  PTR    → Reverse DNS (IP → name)
+```
+
+```bash
+# DNS troubleshooting commands
+dig api.example.com             # Full query
+dig +short api.example.com      # Just the IP
+dig @8.8.8.8 api.example.com   # Query specific resolver
+dig api.example.com MX          # Mail records
+dig +trace api.example.com     # Show full resolution chain
+nslookup api.example.com        # Simple lookup
+host api.example.com            # Another simple lookup
+
+# Kubernetes DNS
+# Service: <svc>.<namespace>.svc.cluster.local
+# Pod: <pod-ip-dashed>.<namespace>.pod.cluster.local
+kubectl run test --image=busybox --rm -it -- nslookup api-service.production.svc.cluster.local
+```
+
+---
+
+## Network Troubleshooting Toolkit
+
+**58. Essential networking commands for interviews:**
+
+```bash
+# ─── CONNECTIVITY ─────────────────────────────────
+ping 10.0.0.1                    # ICMP connectivity
+traceroute 10.0.0.1              # Path to host (shows each hop)
+mtr 10.0.0.1                     # Continuous traceroute (best tool)
+telnet 10.0.0.1 80               # Test TCP port connectivity
+nc -zv 10.0.0.1 80               # Netcat port check
+curl -v http://10.0.0.1:80       # HTTP connectivity + headers
+
+# ─── DNS ──────────────────────────────────────────
+dig +short api.example.com       # Resolve DNS
+nslookup api.example.com         # DNS lookup
+cat /etc/resolv.conf             # DNS resolver config
+
+# ─── PORTS & CONNECTIONS ──────────────────────────
+ss -tlnp                          # Listening TCP ports (modern)
+netstat -tlnp                     # Listening ports (older)
+ss -s                             # Connection statistics
+lsof -i :8080                    # What process is using port 8080
+
+# ─── TRAFFIC CAPTURE ─────────────────────────────
+tcpdump -i eth0 port 80          # Capture HTTP traffic
+tcpdump -i any host 10.0.0.1    # All traffic to/from host
+tcpdump -w capture.pcap          # Save to file (analyze in Wireshark)
+
+# ─── ROUTING ──────────────────────────────────────
+ip route show                    # Routing table
+ip route get 10.0.0.1           # How would we reach this IP?
+ip addr show                     # All interfaces + IPs
+ip neigh show                    # ARP table (MAC addresses)
+
+# ─── BANDWIDTH / PERFORMANCE ─────────────────────
+iperf3 -s                        # Start server
+iperf3 -c 10.0.0.1              # Test bandwidth to server
+curl -o /dev/null -w "time_total: %{time_total}\n" http://api.example.com
+```
+
+**59. TCP 3-way handshake and connection states:**
+
+```
+TCP 3-Way Handshake:
+
+  Client                    Server
+    │                         │
+    │──── SYN ───────────────▶│  "I want to connect"
+    │                         │
+    │◀─── SYN-ACK ───────────│  "OK, I acknowledge"
+    │                         │
+    │──── ACK ───────────────▶│  "Great, connection open"
+    │                         │
+    │◀═══ DATA ══════════════▶│  Data transfer
+    │                         │
+    │──── FIN ───────────────▶│  "I'm done"
+    │◀─── ACK ───────────────│
+    │◀─── FIN ───────────────│
+    │──── ACK ───────────────▶│  Connection closed
+
+  Common states (visible in ss/netstat):
+  LISTEN      → Server waiting for connections
+  ESTABLISHED → Active connection
+  TIME_WAIT   → Connection closing, waiting for late packets
+  CLOSE_WAIT  → Remote side closed, app hasn't closed yet (BUG if many)
+  SYN_SENT    → Connection attempt in progress
+```
+
+---
+
+## Cloud Networking Concepts
+
+**60. VPC/VNET, Subnets, Security Groups, NAT Gateway:**
+
+```
+Cloud Network Architecture:
+
+  ┌──── VPC / VNET (10.0.0.0/16) ─────────────────────────────────┐
+  │                                                                 │
+  │  ┌── Public Subnet (10.0.1.0/24) ──────────────────────────┐  │
+  │  │  ┌──────────────┐  ┌──────────────┐                     │  │
+  │  │  │ Load Balancer │  │ Bastion Host │                     │  │
+  │  │  │ (public IP)   │  │ (public IP)  │                     │  │
+  │  │  └──────┬───────┘  └──────────────┘                     │  │
+  │  │         │                                                │  │
+  │  │   Internet Gateway (IGW) ←→ Internet                     │  │
+  │  └─────────┼────────────────────────────────────────────────┘  │
+  │            │                                                    │
+  │  ┌── Private Subnet (10.0.2.0/24) ─────────────────────────┐  │
+  │  │         │                                                │  │
+  │  │  ┌──────▼───────┐  ┌──────────────┐  ┌──────────────┐  │  │
+  │  │  │ App Server 1 │  │ App Server 2 │  │ App Server 3 │  │  │
+  │  │  │ (no public IP)│  │              │  │              │  │  │
+  │  │  └──────────────┘  └──────────────┘  └──────────────┘  │  │
+  │  │                                                          │  │
+  │  │  NAT Gateway → lets private servers reach internet       │  │
+  │  │               (outbound only, no inbound)                │  │
+  │  └──────────────────────────────────────────────────────────┘  │
+  │                                                                 │
+  │  ┌── Database Subnet (10.0.3.0/24) ────────────────────────┐  │
+  │  │  ┌──────────────┐  ┌──────────────┐                     │  │
+  │  │  │  Primary DB  │  │  Replica DB  │  No internet access │  │
+  │  │  └──────────────┘  └──────────────┘                     │  │
+  │  └──────────────────────────────────────────────────────────┘  │
+  └─────────────────────────────────────────────────────────────────┘
+
+  Security Groups (stateful firewall):
+  ├── App SG: Inbound from LB on port 8080 only
+  ├── DB SG: Inbound from App SG on port 5432 only
+  └── Bastion SG: Inbound SSH from your IP only
+
+  NACLs (stateless firewall):
+  ├── Subnet-level rules
+  ├── Both inbound AND outbound rules needed
+  └── Evaluated in order (rule numbers)
+```

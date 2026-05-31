@@ -1789,3 +1789,305 @@ Architecture:
               │(postgres)│  │ (postgres)  │
               └─────────┘   └─────────────┘
 ```
+
+---
+---
+
+# PART 5: DOCKER ADVANCED — Networking Deep Dive, BuildKit, Security, Runtime
+
+---
+
+## Docker Networking Deep Dive
+
+**75. Docker networking modes explained with internals:**
+
+```
+Docker Network Drivers:
+
+  ┌───────────┬────────────────────────────────────────────────────┐
+  │  Driver   │  How it works                                     │
+  ├───────────┼────────────────────────────────────────────────────┤
+  │  bridge   │ Default. Creates docker0 bridge on host.          │
+  │  (default)│ Containers get veth pairs connected to bridge.    │
+  │           │ NAT for outbound. Port-mapping for inbound.       │
+  │           │ Containers on same bridge can talk to each other. │
+  ├───────────┼────────────────────────────────────────────────────┤
+  │  host     │ No network isolation. Container uses host's       │
+  │           │ network stack directly. Best performance.         │
+  │           │ No port mapping needed. No isolation.             │
+  ├───────────┼────────────────────────────────────────────────────┤
+  │  none     │ No networking. Container is completely isolated.  │
+  │           │ Only loopback interface. For batch/compute jobs.  │
+  ├───────────┼────────────────────────────────────────────────────┤
+  │  overlay  │ Multi-host networking (Swarm/K8s). VXLAN tunnel.  │
+  │           │ Containers across hosts communicate as if local.  │
+  │           │ Encrypted option available.                       │
+  ├───────────┼────────────────────────────────────────────────────┤
+  │  macvlan  │ Container gets real MAC address on physical net.  │
+  │           │ Appears as physical device. No NAT. For legacy    │
+  │           │ apps that need to be on the LAN.                  │
+  ├───────────┼────────────────────────────────────────────────────┤
+  │  ipvlan   │ Like macvlan but shares host MAC. L2 or L3 mode. │
+  │           │ Better for environments that limit MAC addresses. │
+  └───────────┴────────────────────────────────────────────────────┘
+```
+
+```bash
+# Bridge networking internals
+docker network create --driver bridge \
+  --subnet 172.20.0.0/16 \
+  --ip-range 172.20.240.0/20 \
+  --gateway 172.20.0.1 \
+  my-network
+
+# Inspect network
+docker network inspect my-network
+
+# How bridge works under the hood:
+# 1. Docker creates a Linux bridge (docker0 or custom)
+# 2. Each container gets a veth pair:
+#    - One end in container (eth0)
+#    - Other end attached to bridge (vethXXX)
+# 3. Bridge does L2 switching between containers
+# 4. iptables NAT rules for outbound traffic
+# 5. iptables DNAT rules for port mapping
+
+# See the actual iptables rules Docker creates:
+sudo iptables -t nat -L -n | grep DOCKER
+# DNAT tcp -- 0.0.0.0/0 0.0.0.0/0 tcp dpt:8080 to:172.17.0.2:80
+
+# See veth pairs:
+ip link show type veth
+bridge link show
+```
+
+```bash
+# Container DNS resolution
+# Custom networks get automatic DNS (by container name)
+docker network create app-net
+docker run -d --name db --network app-net postgres
+docker run -d --name api --network app-net myapi
+# api container can reach: ping db  ← resolves to container IP
+
+# Default bridge: NO automatic DNS (use --link or avoid)
+docker run -d --name db postgres
+docker run -d --name api myapi
+# api container: ping db  ← FAILS (no DNS on default bridge)
+```
+
+**76. Docker container-to-container communication patterns:**
+
+```bash
+# Pattern 1: Same custom network (recommended)
+docker network create backend
+docker run -d --name db --network backend postgres
+docker run -d --name cache --network backend redis
+docker run -d --name api --network backend \
+  -e DB_HOST=db -e CACHE_HOST=cache myapi
+
+# Pattern 2: Multi-network isolation
+docker network create frontend
+docker network create backend
+docker run -d --name api --network backend myapi
+docker network connect frontend api    # API in both networks
+docker run -d --name web --network frontend nginx
+docker run -d --name db --network backend postgres
+# web → api ✅ (both in frontend)
+# api → db ✅ (both in backend)
+# web → db ❌ (different networks, isolated)
+
+# Pattern 3: Host networking (max performance)
+docker run -d --network host nginx
+# nginx listens on host's port 80 directly
+```
+
+---
+
+## BuildKit & Multi-Stage Builds
+
+**77. BuildKit — the modern Docker builder:**
+
+```dockerfile
+# syntax=docker/dockerfile:1
+
+# Enable BuildKit features with: DOCKER_BUILDKIT=1 docker build .
+
+# ─── Multi-stage build for Go application ───
+FROM golang:1.22-alpine AS builder
+WORKDIR /app
+
+# Cache dependencies (only re-download when go.mod changes)
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
+
+# Build with caching
+COPY . .
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /app/server .
+
+# ─── Final minimal image ───
+FROM gcr.io/distroless/static:nonroot
+COPY --from=builder /app/server /server
+USER nonroot:nonroot
+EXPOSE 8080
+ENTRYPOINT ["/server"]
+
+# Result: ~10MB image instead of ~1GB
+```
+
+```dockerfile
+# ─── Multi-stage for Python ───
+FROM python:3.12-slim AS builder
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+FROM python:3.12-slim
+WORKDIR /app
+COPY --from=builder /install /usr/local
+COPY . .
+RUN useradd -r appuser && chown -R appuser:appuser /app
+USER appuser
+EXPOSE 8000
+CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:8000", "app:app"]
+```
+
+```bash
+# BuildKit features:
+# 1. Parallel stage building
+# 2. Cache mounts (--mount=type=cache)
+# 3. Secret mounts (never in image layer!)
+# 4. SSH mounts (for private repos)
+# 5. Better output/progress
+
+DOCKER_BUILDKIT=1 docker build \
+  --secret id=npmrc,src=$HOME/.npmrc \    # secret never in image
+  --ssh default=$SSH_AUTH_SOCK \          # for git clone private repos
+  --cache-from myapp:cache \
+  --cache-to type=registry,ref=myapp:cache \
+  -t myapp:latest .
+```
+
+---
+
+## Docker Security Best Practices
+
+**78. Container security checklist:**
+
+```
+Docker Security — Layer by Layer:
+
+  ┌─── Image Security ─────────────────────────────────────┐
+  │ ✅ Use minimal base images (distroless, alpine, slim)  │
+  │ ✅ Pin image versions (python:3.12-slim, NOT :latest)  │
+  │ ✅ Scan for CVEs (trivy, grype, docker scout)          │
+  │ ✅ Multi-stage builds (no build tools in final image)  │
+  │ ✅ Don't store secrets in images                       │
+  │ ✅ Use .dockerignore (exclude .git, .env, secrets)     │
+  ├─── Runtime Security ───────────────────────────────────┤
+  │ ✅ Run as non-root user (USER 1000)                    │
+  │ ✅ Read-only filesystem (--read-only)                  │
+  │ ✅ Drop all capabilities, add only needed              │
+  │ ✅ No --privileged (EVER in production)                │
+  │ ✅ Resource limits (--memory, --cpus)                  │
+  │ ✅ No new privileges (--security-opt=no-new-privileges)│
+  ├─── Network Security ───────────────────────────────────┤
+  │ ✅ Custom networks (not default bridge)                │
+  │ ✅ Don't expose unnecessary ports                      │
+  │ ✅ Use internal networks where possible                │
+  │ ✅ Enable TLS for daemon communication                 │
+  ├─── Host Security ──────────────────────────────────────┤
+  │ ✅ Keep Docker daemon updated                          │
+  │ ✅ Enable user namespaces (--userns-remap)             │
+  │ ✅ Use seccomp profiles                                │
+  │ ✅ AppArmor/SELinux profiles                           │
+  └─────────────────────────────────────────────────────────┘
+```
+
+```bash
+# Secure container run command:
+docker run -d \
+  --name secure-app \
+  --user 1000:1000 \
+  --read-only \
+  --tmpfs /tmp:rw,noexec,nosuid,size=100m \
+  --cap-drop ALL \
+  --cap-add NET_BIND_SERVICE \
+  --security-opt no-new-privileges \
+  --security-opt seccomp=default.json \
+  --memory 512m \
+  --cpus 1.0 \
+  --pids-limit 100 \
+  --network app-network \
+  -p 8080:8080 \
+  myapp:1.0
+
+# Scan image for vulnerabilities
+docker scout cves myapp:1.0
+trivy image myapp:1.0
+grype myapp:1.0
+```
+
+**79. Docker content trust & image signing:**
+
+```bash
+# Enable Docker Content Trust (DCT)
+export DOCKER_CONTENT_TRUST=1
+
+# Now docker push/pull will enforce image signatures
+docker push myregistry.io/myapp:1.0    # Signs image
+docker pull myregistry.io/myapp:1.0    # Verifies signature
+
+# Cosign (modern alternative, used with Sigstore)
+cosign sign --key cosign.key myregistry.io/myapp:1.0
+cosign verify --key cosign.pub myregistry.io/myapp:1.0
+```
+
+---
+
+## Docker Internals
+
+**80. Namespaces, cgroups, and Union filesystem explained:**
+
+```
+Container Isolation — Linux Kernel Features:
+
+  ┌─── NAMESPACES (what a container CAN SEE) ──────────────┐
+  │                                                         │
+  │  PID namespace   → Container sees only its processes    │
+  │                    PID 1 = container's entrypoint       │
+  │  NET namespace   → Own network stack (eth0, iptables)   │
+  │  MNT namespace   → Own mount points (filesystem view)  │
+  │  UTS namespace   → Own hostname                        │
+  │  IPC namespace   → Own shared memory/semaphores        │
+  │  USER namespace  → Map container root to host non-root │
+  │  CGROUP namespace→ Own view of cgroup hierarchy        │
+  └─────────────────────────────────────────────────────────┘
+
+  ┌─── CGROUPS (what a container CAN USE) ─────────────────┐
+  │                                                         │
+  │  CPU:    cpu.max/cpu.shares     → CPU time limits       │
+  │  Memory: memory.max/memory.swap → RAM limits            │
+  │  I/O:    io.max                 → Disk I/O bandwidth    │
+  │  PIDs:   pids.max               → Process count limit   │
+  │  Network:                       → Bandwidth limits      │
+  │                                                         │
+  │  # See cgroup for a container:                          │
+  │  cat /sys/fs/cgroup/docker/<id>/memory.current          │
+  └─────────────────────────────────────────────────────────┘
+
+  ┌─── UNION FILESYSTEM (layers) ──────────────────────────┐
+  │                                                         │
+  │  ┌─────────────────┐  Read-Write (container layer)     │
+  │  ├─────────────────┤  Layer 4: COPY app.py (read-only) │
+  │  ├─────────────────┤  Layer 3: RUN pip install         │
+  │  ├─────────────────┤  Layer 2: RUN apt-get install     │
+  │  ├─────────────────┤  Layer 1: FROM python:3.12-slim   │
+  │  └─────────────────┘                                    │
+  │                                                         │
+  │  OverlayFS: upperdir (RW) + lowerdir (RO) = merged     │
+  │  Copy-on-Write: Only copies file to RW when modified    │
+  └─────────────────────────────────────────────────────────┘
+```

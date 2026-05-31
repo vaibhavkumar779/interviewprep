@@ -624,3 +624,296 @@ Use **request ID** (correlation ID) across all three:
 4. Include in trace spans as attribute
 5. In Grafana: click metric spike → link to Loki logs filtered by time → link to Jaeger trace by request ID
 - Exemplars: Prometheus metric → link directly to trace
+
+---
+---
+
+# PART 4: ADVANCED MONITORING — PromQL, OpenTelemetry, Grafana Stack
+
+---
+
+## PromQL Deep Dive
+
+**66. PromQL basics — query types:**
+
+```promql
+# ─── INSTANT VECTORS (single value per time series at a point) ───
+
+# Current CPU usage across all pods
+container_cpu_usage_seconds_total
+
+# Filter by label
+container_cpu_usage_seconds_total{namespace="production"}
+container_cpu_usage_seconds_total{pod=~"api-.*"}          # regex match
+container_cpu_usage_seconds_total{pod!="api-canary"}      # not equal
+http_requests_total{status=~"5.."}                        # all 5xx errors
+
+# ─── RANGE VECTORS (values over time window) ───
+
+# Rate of HTTP requests over last 5 minutes (MOST COMMON)
+rate(http_requests_total[5m])
+
+# Rate of errors by service
+rate(http_requests_total{status=~"5.."}[5m])
+
+# Increase (total count increase over window)
+increase(http_requests_total[1h])
+```
+
+```promql
+# ─── AGGREGATION OPERATORS ───
+
+# Total requests per service
+sum(rate(http_requests_total[5m])) by (service)
+
+# Average response time per endpoint
+avg(http_request_duration_seconds) by (handler)
+
+# 95th percentile latency (histogram)
+histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))
+
+# Top 5 pods by CPU
+topk(5, rate(container_cpu_usage_seconds_total[5m]))
+
+# Count of unhealthy targets
+count(up == 0)
+```
+
+```promql
+# ─── REAL-WORLD ALERT QUERIES ───
+
+# Error rate > 5%
+sum(rate(http_requests_total{status=~"5.."}[5m]))
+  /
+sum(rate(http_requests_total[5m]))
+  > 0.05
+
+# P99 latency > 1 second
+histogram_quantile(0.99,
+  sum(rate(http_request_duration_seconds_bucket[5m])) by (le)
+) > 1.0
+
+# Pod restart rate
+rate(kube_pod_container_status_restarts_total[15m]) > 0
+
+# Memory usage > 80% of limit
+container_memory_working_set_bytes
+  /
+container_spec_memory_limit_bytes
+  > 0.8
+
+# Disk will fill in 4 hours (prediction)
+predict_linear(node_filesystem_avail_bytes[1h], 4*3600) < 0
+
+# Absent metric (target down)
+absent(up{job="api-server"})
+```
+
+```yaml
+# Prometheus alerting rule
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: app-alerts
+spec:
+  groups:
+    - name: app.rules
+      rules:
+        - alert: HighErrorRate
+          expr: |
+            sum(rate(http_requests_total{status=~"5.."}[5m])) by (service)
+            /
+            sum(rate(http_requests_total[5m])) by (service)
+            > 0.05
+          for: 5m                          # Must be true for 5 min
+          labels:
+            severity: critical
+          annotations:
+            summary: "High error rate on {{ $labels.service }}"
+            description: "Error rate is {{ $value | humanizePercentage }}"
+
+        - alert: PodCrashLooping
+          expr: rate(kube_pod_container_status_restarts_total[15m]) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Pod {{ $labels.pod }} is crash-looping"
+```
+
+---
+
+## OpenTelemetry (OTel)
+
+**67. What is OpenTelemetry? Why is it the future?**
+
+```
+OpenTelemetry — Unified Observability Framework:
+
+  ┌──────────────────────────────────────────────────────────────┐
+  │                    YOUR APPLICATION                          │
+  │  ┌──────────┐  ┌──────────┐  ┌──────────┐                  │
+  │  │  Metrics  │  │  Logs    │  │  Traces  │                  │
+  │  └─────┬────┘  └─────┬────┘  └─────┬────┘                  │
+  │        └──────────────┼────────────┘                        │
+  │                       ▼                                     │
+  │              ┌─────────────────┐                            │
+  │              │  OTel SDK       │  (auto + manual instrument)│
+  │              └────────┬────────┘                            │
+  └───────────────────────┼─────────────────────────────────────┘
+                          ▼
+                 ┌─────────────────┐
+                 │  OTel Collector │  (receive, process, export)
+                 │  ┌───────────┐  │
+                 │  │ Receivers │  │  ← OTLP, Jaeger, Prometheus
+                 │  ├───────────┤  │
+                 │  │Processors │  │  ← batch, filter, transform
+                 │  ├───────────┤  │
+                 │  │ Exporters │  │  ← to backends
+                 │  └───────────┘  │
+                 └────────┬────────┘
+              ┌───────────┼───────────┐
+              ▼           ▼           ▼
+         Prometheus    Jaeger      Loki
+         (metrics)    (traces)    (logs)
+```
+
+```yaml
+# OTel Collector configuration
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: 'k8s-pods'
+          kubernetes_sd_configs:
+            - role: pod
+
+processors:
+  batch:
+    timeout: 5s
+    send_batch_size: 1000
+  memory_limiter:
+    limit_mib: 512
+  attributes:
+    actions:
+      - key: environment
+        value: production
+        action: insert
+
+exporters:
+  prometheus:
+    endpoint: 0.0.0.0:8889
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+  loki:
+    endpoint: http://loki:3100/loki/api/v1/push
+
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp, prometheus]
+      processors: [memory_limiter, batch]
+      exporters: [prometheus]
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp/jaeger]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch, attributes]
+      exporters: [loki]
+```
+
+**Why OTel over vendor-specific SDKs:**
+- **Vendor-neutral**: Switch backends without code changes
+- **Unified API**: Same SDK for metrics + traces + logs
+- **Auto-instrumentation**: Inject without code changes (Java, Python, Node.js)
+- **CNCF project**: Industry standard (graduated project)
+- **W3C Trace Context**: Standardized trace propagation
+
+---
+
+## Grafana Stack (Loki, Tempo, Mimir)
+
+**68. Modern observability stack:**
+
+```
+Grafana LGTM Stack:
+
+  ┌────────────────────────────────────────────────────────┐
+  │  L = Loki    (logs)     — Like Prometheus but for logs │
+  │  G = Grafana (dashboards) — Unified visualization      │
+  │  T = Tempo   (traces)  — Distributed tracing backend   │
+  │  M = Mimir   (metrics) — Horizontally scalable Prom    │
+  └────────────────────────────────────────────────────────┘
+
+  Why Loki over ELK?
+  ├── Doesn't index log content (only labels) → much cheaper
+  ├── Uses same label model as Prometheus
+  ├── Native Grafana integration
+  └── LogQL query language (similar to PromQL)
+```
+
+```
+# LogQL examples (Loki query language)
+{namespace="production", app="api"} |= "error"           # contains "error"
+{app="api"} |~ "status=[45].."                            # regex match
+{app="api"} | json | status >= 500                        # parse JSON, filter
+{app="api"} | json | line_format "{{.method}} {{.path}}"  # reformat
+
+# Aggregate logs into metrics
+sum(rate({app="api"} |= "error" [5m])) by (pod)           # error rate
+count_over_time({app="api"} |= "timeout" [1h])            # timeout count
+```
+
+---
+
+## ServiceMonitor & PodMonitor (Prometheus Operator)
+
+**69. Auto-discover monitoring targets in Kubernetes:**
+
+```yaml
+# ServiceMonitor — tell Prometheus to scrape a Service
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: api-monitor
+  labels:
+    release: prometheus    # Must match Prometheus selector
+spec:
+  selector:
+    matchLabels:
+      app: api-service
+  endpoints:
+    - port: metrics         # Named port in Service
+      path: /metrics
+      interval: 15s
+  namespaceSelector:
+    matchNames: ["production"]
+
+---
+# PodMonitor — scrape pods directly (no Service needed)
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: batch-jobs-monitor
+spec:
+  selector:
+    matchLabels:
+      app: batch-processor
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+```
+
+**Key interview answer:**
+> "For modern observability, I use the **Grafana LGTM stack**: Loki for logs, Tempo for traces, Mimir/Prometheus for metrics, all unified in Grafana dashboards. I instrument apps with **OpenTelemetry** for vendor-neutral telemetry and use the **OTel Collector** as a pipeline to route data. For Kubernetes, the **Prometheus Operator** with ServiceMonitors auto-discovers targets. I write PromQL for alerting — rate() for request rates, histogram_quantile() for latencies, predict_linear() for capacity planning."

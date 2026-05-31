@@ -647,3 +647,693 @@ Key difference: Jenkins has deeper embedded CI ecosystem, more plugins for hardw
 8. **Approval gate**: Manual approval for production release
 9. **Production release**: Push to OTA update server
 10. **Notify stakeholders**: Release email/Slack notification
+
+---
+---
+
+# PART 4: GO LANGUAGE — DEEP DIVE FOR DEVOPS INTERVIEWS
+
+> Go is the language of cloud-native infrastructure: Docker, Kubernetes, Terraform,
+> Prometheus, Helm, ArgoCD, Istio — ALL written in Go. You MUST know it.
+
+---
+
+## Go Fundamentals
+
+**71. Why Go for DevOps/Infrastructure?**
+
+```
+Why Go Dominates Cloud-Native:
+
+  ┌────────────────────────────────────────────────────────┐
+  │  Tool              │  Language  │  Why Go?             │
+  ├────────────────────┼───────────┼──────────────────────┤
+  │  Docker            │  Go       │  System-level perf   │
+  │  Kubernetes        │  Go       │  Concurrency model   │
+  │  Terraform         │  Go       │  Single binary       │
+  │  Prometheus        │  Go       │  Low memory footprint│
+  │  Helm              │  Go       │  Cross-compile easy  │
+  │  ArgoCD            │  Go       │  gRPC + HTTP native  │
+  │  Istio/Envoy       │  Go/C++   │  Network performance │
+  │  containerd        │  Go       │  Container runtime   │
+  │  etcd              │  Go       │  Distributed systems │
+  └────────────────────┴───────────┴──────────────────────┘
+
+  Why: Compiles to single static binary, fast startup,
+       goroutines for concurrency, strong stdlib (HTTP, JSON, crypto),
+       cross-compilation (GOOS=linux GOARCH=amd64)
+```
+
+**72. Go vs Python — when to use which?**
+
+| Aspect | Go | Python |
+|--------|-----|--------|
+| Speed | ~50x faster (compiled) | Slower (interpreted) |
+| Concurrency | Goroutines (lightweight) | Threading limited by GIL |
+| Deployment | Single binary, no runtime | Needs Python runtime + deps |
+| Typing | Static, compile-time | Dynamic, runtime |
+| Error handling | Explicit (return error) | Exceptions (try/except) |
+| Learning curve | Steeper | Easier |
+| **Best for** | CLI tools, APIs, infrastructure | Scripting, automation, glue code |
+
+**73. Go basics — variables, types, control flow:**
+
+```go
+package main
+
+import (
+    "fmt"
+    "strings"
+)
+
+func main() {
+    // Variables — short declaration vs explicit
+    name := "Vaibhav"                    // short form (inferred type)
+    var age int = 25                     // explicit
+    var active bool                      // zero value: false
+    var servers []string                 // zero value: nil slice
+
+    // Constants
+    const maxRetries = 3
+    const (
+        StatusOK    = 200
+        StatusError = 500
+    )
+
+    // Strings
+    upper := strings.ToUpper(name)       // "VAIBHAV"
+    contains := strings.Contains(name, "Vai") // true
+
+    // Arrays vs Slices
+    var fixedArr [3]int = [3]int{1, 2, 3}   // ARRAY: fixed size
+    dynamicSlice := []int{1, 2, 3}          // SLICE: dynamic
+    dynamicSlice = append(dynamicSlice, 4)  // grow
+
+    // Maps (like Python dict)
+    config := map[string]string{
+        "host": "10.0.0.1",
+        "port": "8080",
+    }
+    config["env"] = "production"           // add key
+    val, exists := config["host"]          // check existence
+    delete(config, "port")                 // delete key
+
+    // Control flow
+    if age > 18 {
+        fmt.Println("Adult")
+    } else if age > 13 {
+        fmt.Println("Teen")
+    }
+
+    // For loop (Go's ONLY loop — no while)
+    for i := 0; i < 5; i++ {
+        fmt.Println(i)
+    }
+
+    // Range (iterate over collections)
+    for idx, server := range servers {
+        fmt.Printf("%d: %s\n", idx, server)
+    }
+    for key, value := range config {
+        fmt.Printf("%s=%s\n", key, value)
+    }
+
+    // Switch (no break needed — auto-breaks)
+    switch age {
+    case 25:
+        fmt.Println("Twenty-five")
+    case 30:
+        fmt.Println("Thirty")
+    default:
+        fmt.Println("Other")
+    }
+
+    fmt.Println(upper, contains, fixedArr, val, exists, active)
+}
+```
+
+---
+
+## Functions, Error Handling, Interfaces
+
+**74. Go functions and multiple return values:**
+
+```go
+// Go functions return MULTIPLE values (idiomatic for errors)
+func divide(a, b float64) (float64, error) {
+    if b == 0 {
+        return 0, fmt.Errorf("division by zero")
+    }
+    return a / b, nil
+}
+
+// Named return values
+func getServerInfo(name string) (ip string, port int, err error) {
+    // ... lookup logic
+    return "10.0.0.1", 8080, nil
+}
+
+// Variadic functions
+func sum(nums ...int) int {
+    total := 0
+    for _, n := range nums {
+        total += n
+    }
+    return total
+}
+
+// First-class functions (functions as arguments)
+func retry(attempts int, fn func() error) error {
+    for i := 0; i < attempts; i++ {
+        if err := fn(); err == nil {
+            return nil
+        }
+        time.Sleep(time.Second * time.Duration(i+1))
+    }
+    return fmt.Errorf("failed after %d attempts", attempts)
+}
+
+// Defer — runs when function exits (like Python's finally)
+func readFile(path string) ([]byte, error) {
+    f, err := os.Open(path)
+    if err != nil {
+        return nil, err
+    }
+    defer f.Close()    // ALWAYS close file, even on error
+
+    return io.ReadAll(f)
+}
+```
+
+**75. Error handling — Go's explicit pattern:**
+
+```go
+// Go has NO exceptions. Errors are VALUES.
+// Pattern: if err != nil { handle it }
+
+func deployService(name string) error {
+    // Step 1: Pull image
+    image, err := pullImage(name)
+    if err != nil {
+        return fmt.Errorf("pull failed: %w", err) // %w wraps error
+    }
+
+    // Step 2: Create container
+    container, err := createContainer(image)
+    if err != nil {
+        return fmt.Errorf("create failed: %w", err)
+    }
+
+    // Step 3: Start
+    if err := container.Start(); err != nil {
+        return fmt.Errorf("start failed: %w", err)
+    }
+
+    return nil  // success
+}
+
+// Custom error types
+type NotFoundError struct {
+    Resource string
+    Name     string
+}
+
+func (e *NotFoundError) Error() string {
+    return fmt.Sprintf("%s '%s' not found", e.Resource, e.Name)
+}
+
+// Check error type
+func handleError(err error) {
+    var nf *NotFoundError
+    if errors.As(err, &nf) {
+        fmt.Printf("Resource not found: %s\n", nf.Name)
+    } else if errors.Is(err, os.ErrPermission) {
+        fmt.Println("Permission denied")
+    } else {
+        fmt.Printf("Unknown error: %v\n", err)
+    }
+}
+```
+
+**76. Interfaces — Go's polymorphism:**
+
+```go
+// Interface = set of method signatures
+// ANY type that implements all methods satisfies the interface
+// NO "implements" keyword needed (implicit/structural typing)
+
+type HealthChecker interface {
+    CheckHealth() (bool, error)
+    Name() string
+}
+
+// Docker implementation
+type DockerService struct {
+    ContainerID string
+    Host        string
+}
+
+func (d *DockerService) CheckHealth() (bool, error) {
+    // docker inspect --format='{{.State.Health.Status}}'
+    resp, err := http.Get(fmt.Sprintf("http://%s:2375/containers/%s/json", d.Host, d.ContainerID))
+    if err != nil {
+        return false, err
+    }
+    defer resp.Body.Close()
+    return resp.StatusCode == 200, nil
+}
+
+func (d *DockerService) Name() string {
+    return fmt.Sprintf("docker:%s", d.ContainerID[:12])
+}
+
+// Kubernetes implementation
+type K8sDeployment struct {
+    Namespace string
+    Deploy    string
+}
+
+func (k *K8sDeployment) CheckHealth() (bool, error) {
+    // kubectl get deploy -n namespace -o jsonpath='{.status.readyReplicas}'
+    cmd := exec.Command("kubectl", "get", "deploy", k.Deploy, "-n", k.Namespace,
+        "-o", "jsonpath={.status.readyReplicas}")
+    out, err := cmd.Output()
+    if err != nil {
+        return false, err
+    }
+    replicas, _ := strconv.Atoi(string(out))
+    return replicas > 0, nil
+}
+
+func (k *K8sDeployment) Name() string {
+    return fmt.Sprintf("k8s:%s/%s", k.Namespace, k.Deploy)
+}
+
+// Use interface — works with ANY implementation
+func checkAll(services []HealthChecker) {
+    for _, svc := range services {
+        healthy, err := svc.CheckHealth()
+        if err != nil {
+            fmt.Printf("❌ %s: error: %v\n", svc.Name(), err)
+        } else if healthy {
+            fmt.Printf("✅ %s: healthy\n", svc.Name())
+        } else {
+            fmt.Printf("⚠️ %s: unhealthy\n", svc.Name())
+        }
+    }
+}
+
+// Common interfaces from stdlib:
+// io.Reader     → Read(p []byte) (n int, err error)
+// io.Writer     → Write(p []byte) (n int, err error)
+// fmt.Stringer  → String() string
+// error         → Error() string
+// http.Handler  → ServeHTTP(w ResponseWriter, r *Request)
+```
+
+---
+
+## Goroutines & Concurrency
+
+**77. Goroutines and channels — Go's concurrency model:**
+
+```go
+// Goroutine = lightweight thread (~2KB stack vs 1MB for OS thread)
+// Channels = typed pipes for communication between goroutines
+
+// Basic goroutine
+func main() {
+    go sayHello("Vaibhav")    // starts concurrently
+    go sayHello("World")      // starts concurrently
+    time.Sleep(time.Second)   // wait (bad practice, use WaitGroup)
+}
+
+func sayHello(name string) {
+    fmt.Printf("Hello, %s!\n", name)
+}
+```
+
+```go
+// WaitGroup — proper way to wait for goroutines
+func checkServers(servers []string) {
+    var wg sync.WaitGroup
+
+    for _, server := range servers {
+        wg.Add(1)
+        go func(s string) {
+            defer wg.Done()
+            resp, err := http.Get(fmt.Sprintf("http://%s/health", s))
+            if err != nil {
+                fmt.Printf("❌ %s: %v\n", s, err)
+                return
+            }
+            defer resp.Body.Close()
+            fmt.Printf("✅ %s: %d\n", s, resp.StatusCode)
+        }(server)
+    }
+
+    wg.Wait()    // Block until all goroutines finish
+    fmt.Println("All checks complete")
+}
+```
+
+```go
+// Channels — communicate between goroutines
+func main() {
+    results := make(chan string, 10)    // buffered channel
+
+    servers := []string{"web01", "web02", "db01"}
+    for _, s := range servers {
+        go func(server string) {
+            // simulate health check
+            status := fmt.Sprintf("%s: OK", server)
+            results <- status           // send to channel
+        }(s)
+    }
+
+    // Receive results
+    for range servers {
+        fmt.Println(<-results)          // receive from channel
+    }
+}
+```
+
+```go
+// Select — listen on multiple channels (like switch for channels)
+func monitorWithTimeout(servers []string) {
+    results := make(chan string)
+    timeout := time.After(5 * time.Second)
+
+    for _, s := range servers {
+        go healthCheck(s, results)
+    }
+
+    for i := 0; i < len(servers); i++ {
+        select {
+        case result := <-results:
+            fmt.Println(result)
+        case <-timeout:
+            fmt.Println("TIMEOUT: Not all servers responded")
+            return
+        }
+    }
+}
+```
+
+**78. Context — cancellation and timeouts:**
+
+```go
+// Context is used EVERYWHERE in Go for:
+// 1. Timeouts  2. Cancellation  3. Request-scoped values
+
+func deployWithTimeout(name string) error {
+    // Cancel if not done in 30 seconds
+    ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+    defer cancel()
+
+    // All downstream calls respect the context
+    if err := pullImage(ctx, name); err != nil {
+        return err
+    }
+    if err := createContainer(ctx, name); err != nil {
+        return err
+    }
+    return startContainer(ctx, name)
+}
+
+func pullImage(ctx context.Context, name string) error {
+    req, _ := http.NewRequestWithContext(ctx, "GET",
+        fmt.Sprintf("https://registry.io/v2/%s/manifests/latest", name), nil)
+
+    resp, err := http.DefaultClient.Do(req)
+    if err != nil {
+        return err      // returns context.DeadlineExceeded if timeout
+    }
+    defer resp.Body.Close()
+    return nil
+}
+
+// Manual cancellation
+func longOperation() {
+    ctx, cancel := context.WithCancel(context.Background())
+
+    go func() {
+        // Wait for user interrupt
+        sigCh := make(chan os.Signal, 1)
+        signal.Notify(sigCh, os.Interrupt)
+        <-sigCh
+        cancel()    // Cancel all operations using this context
+    }()
+
+    doWork(ctx)
+}
+```
+
+---
+
+## Structs, Methods, Pointers
+
+**79. Structs — Go's "classes":**
+
+```go
+// Struct = custom type with named fields
+type Server struct {
+    Name     string    `json:"name" yaml:"name"`
+    IP       string    `json:"ip" yaml:"ip"`
+    Port     int       `json:"port" yaml:"port"`
+    Active   bool      `json:"active" yaml:"active"`
+    Labels   map[string]string `json:"labels,omitempty"`
+}
+
+// Constructor pattern (Go has no constructors)
+func NewServer(name, ip string, port int) *Server {
+    return &Server{
+        Name:   name,
+        IP:     ip,
+        Port:   port,
+        Active: true,
+        Labels: make(map[string]string),
+    }
+}
+
+// Methods (functions on a type)
+func (s *Server) Address() string {
+    return fmt.Sprintf("%s:%d", s.IP, s.Port)
+}
+
+func (s *Server) Shutdown() error {
+    s.Active = false    // pointer receiver — modifies original
+    fmt.Printf("Shutting down %s\n", s.Name)
+    return nil
+}
+
+// Embedding (composition over inheritance)
+type MonitoredServer struct {
+    Server                    // Embed Server (gets all its fields/methods)
+    MetricsPort  int
+    HealthPath   string
+}
+
+ms := MonitoredServer{
+    Server:      *NewServer("web01", "10.0.0.1", 8080),
+    MetricsPort: 9090,
+    HealthPath:  "/healthz",
+}
+fmt.Println(ms.Name)         // Accessed directly (promoted from Server)
+fmt.Println(ms.Address())    // Method from Server
+```
+
+**80. Pointers — value vs reference:**
+
+```go
+// Go is pass-by-value. Use pointers to modify original.
+
+// Value receiver — gets a COPY (can't modify original)
+func (s Server) Info() string {
+    return fmt.Sprintf("%s at %s", s.Name, s.IP)
+}
+
+// Pointer receiver — gets the ORIGINAL (can modify)
+func (s *Server) SetIP(ip string) {
+    s.IP = ip    // modifies the original Server
+}
+
+// When to use pointers:
+// ✅ When method needs to modify the receiver
+// ✅ When struct is large (avoid copying)
+// ✅ When you need nil to mean "not set"
+// ❌ For small immutable types (use value)
+```
+
+---
+
+## Practical Go for DevOps
+
+**81. Build a CLI tool (Cobra — used by kubectl, helm, docker):**
+
+```go
+package main
+
+import (
+    "fmt"
+    "os"
+    "github.com/spf13/cobra"
+)
+
+func main() {
+    rootCmd := &cobra.Command{
+        Use:   "devtool",
+        Short: "DevOps utility CLI",
+    }
+
+    // Sub-command: devtool deploy
+    deployCmd := &cobra.Command{
+        Use:   "deploy [service]",
+        Short: "Deploy a service",
+        Args:  cobra.ExactArgs(1),
+        RunE: func(cmd *cobra.Command, args []string) error {
+            env, _ := cmd.Flags().GetString("env")
+            fmt.Printf("Deploying %s to %s\n", args[0], env)
+            return nil
+        },
+    }
+    deployCmd.Flags().StringP("env", "e", "staging", "Target environment")
+
+    // Sub-command: devtool health
+    healthCmd := &cobra.Command{
+        Use:   "health [url]",
+        Short: "Check service health",
+        Args:  cobra.ExactArgs(1),
+        RunE: func(cmd *cobra.Command, args []string) error {
+            resp, err := http.Get(args[0])
+            if err != nil {
+                return fmt.Errorf("health check failed: %w", err)
+            }
+            defer resp.Body.Close()
+            fmt.Printf("Status: %d\n", resp.StatusCode)
+            return nil
+        },
+    }
+
+    rootCmd.AddCommand(deployCmd, healthCmd)
+    if err := rootCmd.Execute(); err != nil {
+        os.Exit(1)
+    }
+}
+```
+
+**82. HTTP server and REST API in Go:**
+
+```go
+package main
+
+import (
+    "encoding/json"
+    "log"
+    "net/http"
+)
+
+type HealthResponse struct {
+    Status  string `json:"status"`
+    Version string `json:"version"`
+}
+
+func healthHandler(w http.ResponseWriter, r *http.Request) {
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(HealthResponse{
+        Status:  "healthy",
+        Version: "1.0.0",
+    })
+}
+
+func main() {
+    mux := http.NewServeMux()
+    mux.HandleFunc("GET /health", healthHandler)
+    mux.HandleFunc("GET /ready", healthHandler)
+
+    log.Println("Starting server on :8080")
+    log.Fatal(http.ListenAndServe(":8080", mux))
+}
+```
+
+**83. Go modules and project structure:**
+
+```bash
+# Initialize a Go module
+go mod init github.com/vaibhav/mytool
+go mod tidy          # Download dependencies, clean go.sum
+
+# Project structure (standard layout)
+.
+├── cmd/
+│   └── mytool/
+│       └── main.go          # Entry point
+├── internal/
+│   ├── health/
+│   │   └── checker.go       # Internal packages (not importable)
+│   └── deploy/
+│       └── deployer.go
+├── pkg/
+│   └── api/
+│       └── client.go        # Public packages (importable)
+├── go.mod
+├── go.sum
+├── Dockerfile
+└── Makefile
+
+# Cross-compile (build for Linux from Windows/Mac)
+GOOS=linux GOARCH=amd64 go build -o mytool-linux ./cmd/mytool
+GOOS=darwin GOARCH=arm64 go build -o mytool-mac ./cmd/mytool
+GOOS=windows GOARCH=amd64 go build -o mytool.exe ./cmd/mytool
+```
+
+**84. Go testing:**
+
+```go
+// health_test.go — Go convention: same package, _test.go suffix
+package health
+
+import (
+    "net/http"
+    "net/http/httptest"
+    "testing"
+)
+
+func TestCheckHealth(t *testing.T) {
+    // Table-driven tests (Go idiom)
+    tests := []struct {
+        name       string
+        statusCode int
+        wantErr    bool
+    }{
+        {"healthy server", 200, false},
+        {"unhealthy server", 500, false},
+        {"server error", 503, false},
+    }
+
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            // Mock HTTP server
+            server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+                w.WriteHeader(tt.statusCode)
+            }))
+            defer server.Close()
+
+            healthy, err := CheckHealth(server.URL)
+            if (err != nil) != tt.wantErr {
+                t.Errorf("CheckHealth() error = %v, wantErr %v", err, tt.wantErr)
+            }
+            if tt.statusCode == 200 && !healthy {
+                t.Error("Expected healthy=true for 200")
+            }
+        })
+    }
+}
+
+// Run tests:
+// go test ./...                    # all tests
+// go test -v ./internal/health/   # verbose, specific package
+// go test -cover ./...            # with coverage
+// go test -race ./...             # detect race conditions
+// go test -bench=. ./...          # benchmarks
+```

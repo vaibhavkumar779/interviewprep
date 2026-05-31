@@ -434,3 +434,110 @@ RFC process → review → approve → implement. Staged rollout (dev → stagin
 **79. VM vs Container?** VM: full OS isolation, heavier. Container: process isolation, lightweight, faster. Containers for microservices.
 
 **80. Merge vs Rebase?** Merge: preserves history, merge commit. Rebase: linear history, cleaner. Rebase for local branches, merge for main.
+
+---
+---
+
+# PART 4: POLISHED STAR STORIES — With Metrics & Specific Examples
+
+> Use STAR: Situation, Task, Action, Result (with NUMBERS)
+
+---
+
+## Story 1: Pipeline Optimization (Technical Achievement)
+
+**"Tell me about a time you significantly improved a process"**
+
+> **S:** Our Jenkins CI pipeline for the main product took **45 minutes** per build. Developers were running only 2-3 builds per day and getting feedback too late. Build queue had **15-20 jobs** waiting at peak times.
+>
+> **T:** My goal was to reduce build time to under 15 minutes and eliminate the queue bottleneck.
+>
+> **A:** I analyzed the pipeline stages and found: (1) dependency downloads were happening every build — I implemented **artifact caching** (npm, pip caches on shared NFS), (2) unit tests ran sequentially — I **parallelized across 4 agents**, (3) Docker builds rebuilt from scratch — I added **multi-stage builds with layer caching**, (4) I converted from scripted to **declarative pipeline** with proper stage separation.
+>
+> **R:** Build time dropped from **45 min → 12 min (73% reduction)**. Daily builds per developer went from 2-3 to **8-10**. Queue wait time dropped from 20 min to **under 2 min**. Developer satisfaction survey improved from 3.2 to 4.5/5.
+
+---
+
+## Story 2: Production Incident Response (Problem Solving)
+
+**"Tell me about a critical production issue you resolved"**
+
+> **S:** On a Friday evening, our monitoring dashboard showed API response times spike from 200ms to **8 seconds**, with error rate jumping to **35%**. Customers were timing out. PagerDuty triggered a P1 incident.
+>
+> **T:** I was the on-call engineer and needed to restore service while identifying root cause.
+>
+> **A:** I followed our incident runbook: (1) Checked Grafana dashboards — saw **memory at 95%** on 3/5 app pods, (2) Ran `kubectl top pods` — confirmed memory leak, (3) Immediate mitigation: **scaled from 5 to 10 pods** to distribute load while investigating, (4) Used `kubectl logs` with grep — found OOM warnings correlating with a **new feature deployed 2 hours earlier**, (5) Rolled back the deployment with `kubectl rollout undo`, (6) Response times normalized in **under 3 minutes** after rollback.
+>
+> **R:** Total incident duration: **22 minutes** (MTTR). Customer impact limited to 15 minutes of degraded service. Post-mortem identified missing **memory limits** in the new deployment. I added **resource limits to all deployments** and a **pre-deploy memory test** to CI pipeline. Zero similar incidents in the following 6 months.
+
+---
+
+## Story 3: Infrastructure as Code Migration (Leadership/Initiative)
+
+**"Tell me about a time you drove a significant change"**
+
+> **S:** Our team managed **40+ servers** across 3 environments using manual setup — SSH in, run commands, configure by hand. Environment drift was causing "works in staging, fails in prod" issues **weekly**. New environment provisioning took **3-5 days**.
+>
+> **T:** I proposed migrating to Infrastructure as Code to eliminate drift and enable self-service provisioning.
+>
+> **A:** I created a phased plan: (1) **Week 1-2**: Wrote **Terraform modules** for all cloud resources (VMs, networking, storage), (2) **Week 3-4**: Created **Ansible playbooks** for OS configuration, packages, and app deployment, (3) I built a **CI/CD pipeline** that ran `terraform plan` on PR and `terraform apply` on merge, (4) Set up **remote state** in S3 with locking. (5) Documented everything and ran **2 training sessions** for the team.
+>
+> **R:** New environment provisioning went from **3-5 days → 25 minutes**. Environment drift incidents dropped from **weekly → zero**. We achieved **100% infrastructure parity** across environments. Team velocity improved — 3 team members could independently provision infrastructure. The approach was adopted by 2 other teams in the organization.
+
+---
+
+## Story 4: Automation of Repetitive Work (Efficiency)
+
+**"Tell me about a time you automated something"**
+
+> **S:** Our release process was manual — involved **23 manual steps** across 4 people. It took **4 hours** per release and we released biweekly. Human errors caused **1 in 3 releases** to need a hotfix.
+>
+> **T:** Automate the end-to-end release process to reduce errors and time.
+>
+> **A:** I mapped the 23 steps and identified what could be automated: (1) Built a **Jenkins pipeline** that handled version bumping, changelog generation, Docker image building/tagging/pushing, (2) Added **automated smoke tests** that ran against the new build, (3) Implemented **Slack notifications** at each stage with approval gates for production, (4) Created **rollback automation** — one-click revert if smoke tests fail.
+>
+> **R:** Release time: **4 hours → 35 minutes (85% reduction)**. Release errors: **33% → 2%**. Release frequency increased from biweekly to **3x per week** because it was now safe and fast. Freed up **~32 person-hours/month** of engineering time.
+
+---
+
+## Story 5: Conflict Resolution / Collaboration
+
+**"Tell me about a time you disagreed with a team member"**
+
+> **S:** A senior developer wanted to keep our Jenkins setup with 50+ freestyle jobs. I proposed migrating to **Pipeline-as-Code (Jenkinsfiles in Git)**. He felt it would disrupt the team's workflow and was unnecessary complexity.
+>
+> **T:** Find a path forward that addressed his concerns while improving our CI/CD reliability.
+>
+> **A:** (1) I **listened to his concerns** — he was worried about the learning curve and potential downtime during migration. (2) I proposed a **pilot**: migrate **one non-critical pipeline** first, keep freestyle jobs running. (3) I created a **starter Jenkinsfile template** with comments explaining each section. (4) After the pilot succeeded, I showed data: **50% faster builds, version-controlled config, easy rollback**. (5) He agreed to migrate remaining pipelines, and I **paired with him** on the first three conversions.
+>
+> **R:** Full migration completed in 3 weeks. He became one of the **strongest advocates** for Pipeline-as-Code. Build reliability improved by **40%**. We eliminated the problem of "someone changed the job config and broke it" — all changes went through code review.
+
+---
+
+## Story 6: Learning New Technology Quickly
+
+**"Tell me about a time you had to learn something quickly"**
+
+> **S:** Our team decided to migrate from Docker Compose-based deployments to **Kubernetes**. I had no K8s experience. We had a **6-week deadline** to migrate the first production service.
+>
+> **T:** Get up to speed on Kubernetes and lead the migration of our API service.
+>
+> **A:** (1) **Week 1**: CKA course + set up local Minikube, deployed sample apps. (2) **Week 2**: Studied our Docker Compose setup and mapped each service to K8s resources (Deployments, Services, ConfigMaps, Secrets). (3) **Week 3-4**: Wrote Helm charts for our API service with proper health checks, resource limits, and HPA. (4) **Week 5**: Deployed to staging, ran load tests, fixed issues. (5) **Week 6**: Production deployment with gradual traffic shift.
+>
+> **R:** Successfully migrated within the deadline. Service availability went from **99.5% → 99.95%** thanks to K8s self-healing and rolling updates. I then created a **migration guide** and helped the team migrate 4 more services over the next quarter. Later passed the **CKA certification**.
+
+---
+
+## Story 7: Dealing with Ambiguity (for Ciena context)
+
+**"How would you approach joining a team with unfamiliar technology?"**
+
+> **S:** *(Use for Ciena since they use Yocto/embedded builds)*
+>
+> At my current role, I joined a project that used a build system I'd never seen (similar to Yocto — complex, domain-specific, long build times). The existing CI was fragile and poorly documented.
+>
+> **T:** Become productive within 30 days and improve the CI pipeline reliability.
+>
+> **A:** (1) **Days 1-5**: Read documentation, set up local build environment, ran my first build end-to-end. (2) **Days 6-10**: Pair-programmed with the senior build engineer — learned tribal knowledge. (3) **Days 11-20**: Analyzed CI failure logs — found **70% of failures were flaky**, not real. Fixed caching, added retries for transient errors. (4) **Days 21-30**: Implemented proper artifact caching, parallelized independent build steps.
+>
+> **R:** CI reliability went from **65% → 94%** in one month. Build times reduced by **30%**. My fresh perspective — not knowing "how it's always been done" — actually helped me question assumptions the team had accepted.

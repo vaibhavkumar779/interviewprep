@@ -3486,3 +3486,855 @@ kubectl create deploy nginx --image=nginx --dry-run=client -o yaml > deploy.yaml
 kubectl create svc clusterip api --tcp=80:8080 --dry-run=client -o yaml
 kubectl run test --image=busybox --dry-run=client -o yaml -- sleep 3600
 ```
+
+---
+---
+
+# PART 6: ADVANCED KUBERNETES — CRDs, Operators, NetworkPolicies, Admission Controllers
+
+---
+
+## Custom Resource Definitions (CRDs)
+
+**90. What is a CRD? Why use it?**
+
+A CRD (Custom Resource Definition) **extends the Kubernetes API** by defining your own resource types beyond built-in ones (Pods, Services, etc.).
+
+```
+Why CRDs Matter:
+
+  Built-in K8s resources: Pod, Service, Deployment, ConfigMap, etc.
+  But what if you need: Database, Certificate, GitRepository, Pipeline?
+
+  CRDs let you create CUSTOM resources that kubectl treats like native ones:
+
+  kubectl get databases         ← your custom resource!
+  kubectl describe certificate  ← your custom resource!
+  kubectl apply -f my-app.yaml  ← creates your custom object
+```
+
+```yaml
+# Example: Define a CRD for a "Database" resource
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: databases.mycompany.io    # plural.group
+spec:
+  group: mycompany.io             # API group
+  versions:
+    - name: v1
+      served: true                # Enable this version
+      storage: true               # Store objects in this version
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: ["engine", "version", "storage"]
+              properties:
+                engine:
+                  type: string
+                  enum: ["postgres", "mysql", "mongodb"]
+                version:
+                  type: string
+                storage:
+                  type: string
+                  pattern: '^[0-9]+(Gi|Ti)$'
+                replicas:
+                  type: integer
+                  minimum: 1
+                  maximum: 5
+                  default: 1
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                endpoint:
+                  type: string
+      subresources:
+        status: {}                # Enable /status subresource
+      additionalPrinterColumns:   # Custom kubectl columns
+        - name: Engine
+          type: string
+          jsonPath: .spec.engine
+        - name: Version
+          type: string
+          jsonPath: .spec.version
+        - name: Status
+          type: string
+          jsonPath: .status.phase
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+  scope: Namespaced               # or Cluster
+  names:
+    plural: databases
+    singular: database
+    kind: Database
+    shortNames: ["db"]            # kubectl get db
+    categories: ["all"]           # shows in kubectl get all
+```
+
+```yaml
+# Now create a custom Database resource
+apiVersion: mycompany.io/v1
+kind: Database
+metadata:
+  name: user-db
+  namespace: production
+spec:
+  engine: postgres
+  version: "15.4"
+  storage: 100Gi
+  replicas: 3
+```
+
+```bash
+# Use it just like built-in resources
+kubectl apply -f database.yaml
+kubectl get databases            # or: kubectl get db
+kubectl describe db user-db
+kubectl delete db user-db
+kubectl get db -o wide           # Shows custom printer columns
+
+# Output:
+# NAME      ENGINE     VERSION   STATUS   AGE
+# user-db   postgres   15.4      Ready    5m
+```
+
+**Key interview answer:**
+> "A CRD extends the Kubernetes API with custom resource types. You define the schema (like a database table definition), and then users can create instances using kubectl just like native resources. CRDs are the foundation for the Operator pattern — the CRD defines the 'what' and a controller implements the 'how'."
+
+---
+
+## Kubernetes Operators
+
+**91. What is an Operator? How is it different from a Controller?**
+
+```
+Operator = CRD + Custom Controller + Domain Knowledge
+
+  ┌─────────────────────────────────────────────────────────┐
+  │                    OPERATOR PATTERN                      │
+  │                                                         │
+  │  ┌──────────┐     ┌──────────────────┐                 │
+  │  │   CRD    │     │    Controller    │                 │
+  │  │ (Schema) │     │ (Reconcile Loop) │                 │
+  │  │          │     │                  │                 │
+  │  │ defines  │     │ watches CRs and  │                 │
+  │  │ desired  │────▶│ makes reality    │                 │
+  │  │ state    │     │ match desired    │                 │
+  │  │          │     │ state            │                 │
+  │  └──────────┘     └────────┬─────────┘                 │
+  │                            │                           │
+  │                    ┌───────▼────────┐                   │
+  │                    │ Domain Logic   │                   │
+  │                    │ (backup, scale,│                   │
+  │                    │  failover,     │                   │
+  │                    │  upgrade DB)   │                   │
+  │                    └────────────────┘                   │
+  └─────────────────────────────────────────────────────────┘
+
+  Controller: Generic reconcile loop (built-in: Deployment controller)
+  Operator: Controller + DOMAIN EXPERTISE encoded in code
+            (knows HOW to run a database, not just restart pods)
+```
+
+```
+Reconciliation Loop (Heart of every Operator):
+
+  ┌──────────────────────────────────────────────────┐
+  │                                                  │
+  │    ┌───────────┐    Compare    ┌──────────────┐ │
+  │    │  Desired  │──────────────▶│   Current    │ │
+  │    │  State    │               │   State      │ │
+  │    │  (CR spec)│               │  (cluster)   │ │
+  │    └───────────┘               └──────────────┘ │
+  │         │                            │          │
+  │         │         ┌──────────┐       │          │
+  │         └────────▶│RECONCILE │◀──────┘          │
+  │                   │  (diff & │                  │
+  │                   │   act)   │                  │
+  │                   └────┬─────┘                  │
+  │                        │                        │
+  │              ┌─────────▼──────────┐             │
+  │              │  Create/Update/    │             │
+  │              │  Delete K8s        │             │
+  │              │  resources         │             │
+  │              └────────────────────┘             │
+  │                        │                        │
+  │                   Wait / Watch                  │
+  │                   (event-driven)                │
+  │                        │                        │
+  │              Back to Reconcile ◀────────────────│
+  └──────────────────────────────────────────────────┘
+```
+
+**Popular Operators in production:**
+
+| Operator | What it manages | Why |
+|----------|----------------|-----|
+| **Prometheus Operator** | Prometheus + Alertmanager + ServiceMonitors | Auto-discovers monitoring targets |
+| **cert-manager** | TLS certificates (Let's Encrypt) | Auto-renews certs before expiry |
+| **Strimzi** | Apache Kafka clusters | Manages brokers, topics, users |
+| **Zalando Postgres Operator** | PostgreSQL HA clusters | Automated failover + backups |
+| **ArgoCD** | GitOps deployments | Syncs cluster state from Git |
+| **Istio Operator** | Service mesh | Manages proxies, traffic rules |
+| **Rook-Ceph** | Distributed storage | Manages Ceph storage on K8s |
+| **Crossplane** | Cloud resources (RDS, S3) | Provisions cloud infra from K8s |
+
+**92. How to build an Operator?**
+
+```bash
+# Using Operator SDK (most common approach)
+# 1. Install
+brew install operator-sdk    # or download binary
+
+# 2. Scaffold project
+operator-sdk init --domain=mycompany.io --repo=github.com/me/db-operator
+operator-sdk create api --group=db --version=v1 --kind=Database --resource --controller
+
+# 3. Project structure
+.
+├── api/v1/
+│   └── database_types.go     # CRD type definitions (your schema)
+├── controllers/
+│   └── database_controller.go # Reconcile logic
+├── config/
+│   ├── crd/                   # Generated CRD YAML
+│   ├── rbac/                  # RBAC for the operator
+│   └── manager/               # Deployment for operator
+├── main.go
+└── Makefile
+```
+
+```go
+// api/v1/database_types.go — Define the CRD schema
+type DatabaseSpec struct {
+    Engine   string `json:"engine"`            // postgres, mysql
+    Version  string `json:"version"`           // 15.4
+    Storage  string `json:"storage"`           // 100Gi
+    Replicas int32  `json:"replicas,omitempty"` // default 1
+}
+
+type DatabaseStatus struct {
+    Phase    string `json:"phase,omitempty"`    // Pending, Running, Failed
+    Endpoint string `json:"endpoint,omitempty"` // connection string
+    Ready    bool   `json:"ready,omitempty"`
+}
+
+type Database struct {
+    metav1.TypeMeta   `json:",inline"`
+    metav1.ObjectMeta `json:"metadata,omitempty"`
+    Spec   DatabaseSpec   `json:"spec,omitempty"`
+    Status DatabaseStatus `json:"status,omitempty"`
+}
+```
+
+```go
+// controllers/database_controller.go — Reconcile logic
+func (r *DatabaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+    log := log.FromContext(ctx)
+
+    // 1. Fetch the Database CR
+    var db dbv1.Database
+    if err := r.Get(ctx, req.NamespacedName, &db); err != nil {
+        return ctrl.Result{}, client.IgnoreNotFound(err)
+    }
+
+    // 2. Create StatefulSet if it doesn't exist
+    found := &appsv1.StatefulSet{}
+    err := r.Get(ctx, types.NamespacedName{Name: db.Name, Namespace: db.Namespace}, found)
+    if err != nil && errors.IsNotFound(err) {
+        sts := r.statefulSetForDB(&db)    // Build desired StatefulSet
+        if err := r.Create(ctx, sts); err != nil {
+            return ctrl.Result{}, err
+        }
+        log.Info("Created StatefulSet", "name", db.Name)
+    }
+
+    // 3. Create Service for the database
+    svc := r.serviceForDB(&db)
+    if err := r.Create(ctx, svc); err != nil && !errors.IsAlreadyExists(err) {
+        return ctrl.Result{}, err
+    }
+
+    // 4. Update status
+    db.Status.Phase = "Running"
+    db.Status.Endpoint = fmt.Sprintf("%s.%s.svc:5432", db.Name, db.Namespace)
+    db.Status.Ready = true
+    if err := r.Status().Update(ctx, &db); err != nil {
+        return ctrl.Result{}, err
+    }
+
+    return ctrl.Result{RequeueAfter: 30 * time.Second}, nil // Periodic reconcile
+}
+```
+
+**Key interview answer:**
+> "An Operator is a CRD plus a custom controller that encodes **domain-specific operational knowledge**. A regular controller just watches and reconciles (like the Deployment controller), but an Operator knows *how* to operate complex software — backup a database, failover replicas, upgrade versions safely. I'd build one with the Operator SDK which scaffolds the Go project, CRD types, and reconciliation loop. Real examples: cert-manager for TLS, Prometheus Operator for monitoring, Strimzi for Kafka."
+
+---
+
+## Network Policies
+
+**93. What are NetworkPolicies? How do they work?**
+
+```
+NetworkPolicy — Firewall rules for Pod-to-Pod traffic:
+
+  WITHOUT NetworkPolicy (default):
+  ┌─────────────────────────────────────────┐
+  │  Every pod can talk to every other pod  │
+  │  Pod A ←→ Pod B ←→ Pod C ←→ Pod D      │
+  │  (fully open — NOT secure!)             │
+  └─────────────────────────────────────────┘
+
+  WITH NetworkPolicy:
+  ┌─────────────────────────────────────────┐
+  │  Only allowed traffic gets through      │
+  │  Pod A ──→ Pod B    (allowed ✅)        │
+  │  Pod C ──✗ Pod B    (blocked ❌)        │
+  │  Pod D ──→ Pod B:80 (allowed ✅)        │
+  │  Pod D ──✗ Pod B:22 (blocked ❌)        │
+  └─────────────────────────────────────────┘
+
+  IMPORTANT: You need a CNI that supports NetworkPolicies!
+  ✅ Calico, Cilium, Weave Net
+  ❌ Flannel (no NetworkPolicy support by default)
+```
+
+```yaml
+# Example 1: Allow only frontend pods to reach backend on port 8080
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: backend-allow-frontend
+  namespace: production
+spec:
+  podSelector:                    # WHO is protected
+    matchLabels:
+      app: backend
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:                        # WHO can reach backend
+    - from:
+        - podSelector:
+            matchLabels:
+              app: frontend
+        - namespaceSelector:       # From monitoring namespace too
+            matchLabels:
+              name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress:                          # WHERE can backend connect
+    - to:
+        - podSelector:
+            matchLabels:
+              app: database
+      ports:
+        - protocol: TCP
+          port: 5432
+    - to:                          # Allow DNS
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+```
+
+```yaml
+# Example 2: Default deny ALL ingress in a namespace (Zero Trust)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: production
+spec:
+  podSelector: {}                  # Applies to ALL pods
+  policyTypes:
+    - Ingress                      # Block ALL inbound
+  # No ingress rules = deny all
+
+# Example 3: Default deny ALL egress (lock everything down)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-egress
+  namespace: production
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:                          # Only allow DNS
+    - to: []
+      ports:
+        - protocol: UDP
+          port: 53
+```
+
+```
+Best Practice — Zero Trust Networking:
+
+  1. Apply default-deny to every namespace
+  2. Explicitly allow only needed traffic
+  3. Restrict by pod label + namespace + port
+  4. Always allow DNS (UDP 53) in egress rules
+  5. Test with: kubectl run test --image=busybox -- wget -qO- backend:8080
+```
+
+**Key interview answer:**
+> "NetworkPolicies are Kubernetes-native firewall rules that control pod-to-pod traffic. By default, all pods can communicate freely — NetworkPolicies restrict this. I apply a **zero-trust model**: default-deny all ingress/egress per namespace, then explicitly allow only needed paths (e.g., frontend→backend:8080, backend→database:5432). They require a CNI that supports them — Calico or Cilium, not Flannel. Always remember to allow DNS (UDP 53) in egress rules or nothing resolves."
+
+---
+
+## Admission Controllers
+
+**94. What are Admission Controllers? Types?**
+
+```
+Request Flow Through Kubernetes API:
+
+  kubectl apply ──▶ API Server ──▶ Authentication ──▶ Authorization (RBAC)
+                                                           │
+                                                           ▼
+                                              ┌─── Admission Controllers ───┐
+                                              │                             │
+                                              │  1. Mutating Webhooks       │
+                                              │     (modify the request)    │
+                                              │         │                   │
+                                              │         ▼                   │
+                                              │  2. Schema Validation       │
+                                              │         │                   │
+                                              │         ▼                   │
+                                              │  3. Validating Webhooks     │
+                                              │     (accept/reject)         │
+                                              │                             │
+                                              └──────────────┬──────────────┘
+                                                             │
+                                                             ▼
+                                                        etcd (stored)
+```
+
+**Built-in Admission Controllers:**
+
+| Controller | Purpose |
+|-----------|---------|
+| `NamespaceLifecycle` | Prevents creating objects in terminating namespaces |
+| `LimitRanger` | Applies default resource limits from LimitRange |
+| `ResourceQuota` | Enforces namespace resource quotas |
+| `PodSecurity` | Enforces Pod Security Standards (replaces PSP) |
+| `MutatingAdmissionWebhook` | Calls external webhooks to mutate requests |
+| `ValidatingAdmissionWebhook` | Calls external webhooks to validate requests |
+
+```yaml
+# Example: ValidatingWebhookConfiguration — Block containers running as root
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: no-root-containers
+webhooks:
+  - name: validate.security.mycompany.io
+    clientConfig:
+      service:
+        name: security-webhook
+        namespace: webhook-system
+        path: /validate
+      caBundle: <base64-ca-cert>
+    rules:
+      - operations: ["CREATE", "UPDATE"]
+        apiGroups: [""]
+        apiVersions: ["v1"]
+        resources: ["pods"]
+    admissionReviewVersions: ["v1"]
+    sideEffects: None
+    failurePolicy: Fail           # Reject if webhook unavailable
+
+# Example: MutatingWebhookConfiguration — Auto-inject sidecar
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: sidecar-injector
+webhooks:
+  - name: inject.sidecar.mycompany.io
+    clientConfig:
+      service:
+        name: sidecar-injector
+        namespace: webhook-system
+        path: /inject
+      caBundle: <base64-ca-cert>
+    rules:
+      - operations: ["CREATE"]
+        apiGroups: [""]
+        apiVersions: ["v1"]
+        resources: ["pods"]
+    namespaceSelector:
+      matchLabels:
+        sidecar-injection: enabled
+    admissionReviewVersions: ["v1"]
+    sideEffects: None
+```
+
+**Real-world uses:**
+- **Istio** uses mutating webhook to inject Envoy sidecar into every pod
+- **OPA/Gatekeeper** uses validating webhook to enforce policies (no privileged pods, mandatory labels)
+- **cert-manager** uses mutating webhook to inject CA bundles
+
+**Key interview answer:**
+> "Admission controllers intercept API requests **after authentication and authorization but before persistence to etcd**. There are two types: **mutating** (modify the request — e.g., Istio injecting sidecar containers) and **validating** (accept or reject — e.g., blocking pods without resource limits). Mutating runs first so validating can check the final state. You can write custom webhooks or use tools like OPA Gatekeeper for policy enforcement."
+
+---
+
+## Kubernetes Networking Deep Dive
+
+**95. Kubernetes networking model — how does pod-to-pod communication work?**
+
+```
+Kubernetes Networking Requirements (the "4 rules"):
+
+  1. Every Pod gets its own IP address
+  2. Pods on same node can communicate without NAT
+  3. Pods on different nodes can communicate without NAT
+  4. Agents (kubelet, kube-proxy) can communicate with all pods
+
+  ┌──────────────────────── Node 1 ─────────────────────────┐
+  │                                                         │
+  │   Pod A (10.244.1.2)    Pod B (10.244.1.3)              │
+  │   ┌──────────────┐      ┌──────────────┐               │
+  │   │  eth0         │      │  eth0         │               │
+  │   └──────┬───────┘      └──────┬───────┘               │
+  │          │                      │                       │
+  │     ┌────▼──────────────────────▼────┐                  │
+  │     │       veth pairs → cbr0        │ (bridge)         │
+  │     └────────────────┬───────────────┘                  │
+  │                      │                                  │
+  │                 ┌────▼────┐                             │
+  │                 │  eth0   │ (Node IP: 192.168.1.10)     │
+  │                 └────┬────┘                             │
+  └──────────────────────┼──────────────────────────────────┘
+                         │
+              ┌──────────▼──────────┐
+              │    Network Fabric    │
+              │   (physical/overlay) │
+              └──────────┬──────────┘
+                         │
+  ┌──────────────────────┼──────────────────────────────────┐
+  │                 ┌────▼────┐                             │
+  │                 │  eth0   │ (Node IP: 192.168.1.11)     │
+  │                 └────┬────┘                             │
+  │     ┌────────────────▼───────────────┐                  │
+  │     │       veth pairs → cbr0        │                  │
+  │     └────┬──────────────────────┬────┘                  │
+  │          │                      │                       │
+  │   ┌──────▼───────┐      ┌──────▼───────┐               │
+  │   │  eth0         │      │  eth0         │               │
+  │   └──────────────┘      └──────────────┘               │
+  │   Pod C (10.244.2.2)    Pod D (10.244.2.3)              │
+  │                                                         │
+  └──────────────────────── Node 2 ─────────────────────────┘
+```
+
+**96. CNI Plugins compared:**
+
+```
+CNI Plugin Comparison:
+
+  ┌──────────────┬──────────┬──────────┬──────────┬──────────┐
+  │   Feature    │  Calico  │  Cilium  │ Flannel  │ Weave    │
+  ├──────────────┼──────────┼──────────┼──────────┼──────────┤
+  │ NetworkPolicy│  ✅ Full │  ✅ Full │  ❌ No   │  ✅ Full │
+  │ Encryption   │  WireGrd │  WireGrd │  ❌ No   │  ✅ Yes  │
+  │ Performance  │  High    │  Highest │  Medium  │  Medium  │
+  │ eBPF         │  Partial │  ✅ Core │  ❌ No   │  ❌ No   │
+  │ L7 Policy    │  ❌      │  ✅ Yes  │  ❌      │  ❌      │
+  │ Observability│  Basic   │  Hubble  │  Basic   │  Basic   │
+  │ Complexity   │  Medium  │  High    │  Low     │  Low     │
+  │ Best For     │  General │  Advanced│  Simple  │  Small   │
+  └──────────────┴──────────┴──────────┴──────────┴──────────┘
+```
+
+**97. Service types and how kube-proxy works?**
+
+```
+Service Types — Traffic Flow:
+
+  ClusterIP (default):
+  ┌─────────────────────────────────────────┐
+  │  Internal only. Virtual IP.             │
+  │  Pod → ClusterIP:port → kube-proxy      │
+  │       → iptables/IPVS rules             │
+  │       → load-balance to backend pods    │
+  └─────────────────────────────────────────┘
+
+  NodePort:
+  ┌─────────────────────────────────────────┐
+  │  External access via <NodeIP>:<NodePort>│
+  │  Range: 30000-32767                     │
+  │  Client → Node:30080 → kube-proxy      │
+  │         → backend pod                   │
+  └─────────────────────────────────────────┘
+
+  LoadBalancer:
+  ┌─────────────────────────────────────────┐
+  │  Cloud LB → NodePort → Pod             │
+  │  Gets external IP from cloud provider  │
+  │  Client → Cloud LB:80 → Node:30080    │
+  │         → backend pod                   │
+  └─────────────────────────────────────────┘
+
+  ExternalName:
+  ┌─────────────────────────────────────────┐
+  │  CNAME alias to external DNS            │
+  │  No proxy, just DNS resolution          │
+  │  my-svc.ns.svc → external.example.com  │
+  └─────────────────────────────────────────┘
+
+  kube-proxy modes:
+  ├── iptables (default): Creates iptables rules for each Service
+  │   Random pod selection, no real load balancing
+  ├── IPVS: True load balancing (round-robin, least-conn, etc.)
+  │   Better performance for large clusters (>1000 services)
+  └── eBPF (Cilium): Replaces kube-proxy entirely, highest performance
+```
+
+**98. Ingress vs Gateway API?**
+
+```yaml
+# Ingress — L7 HTTP routing (older, simpler)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: app-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    cert-manager.io/cluster-issuer: letsencrypt
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [app.example.com]
+      secretName: app-tls
+  rules:
+    - host: app.example.com
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: api-service
+                port:
+                  number: 80
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 80
+```
+
+```yaml
+# Gateway API — next-gen (more expressive, multi-tenant)
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: main-gateway
+spec:
+  gatewayClassName: istio
+  listeners:
+    - name: https
+      port: 443
+      protocol: HTTPS
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: app-cert
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: api-route
+spec:
+  parentRefs:
+    - name: main-gateway
+  hostnames: ["app.example.com"]
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /api
+      backendRefs:
+        - name: api-service
+          port: 80
+          weight: 90            # Traffic splitting!
+        - name: api-canary
+          port: 80
+          weight: 10
+```
+
+```
+Ingress vs Gateway API:
+
+  ┌───────────────────┬──────────────────┬──────────────────────┐
+  │     Feature       │    Ingress       │    Gateway API       │
+  ├───────────────────┼──────────────────┼──────────────────────┤
+  │ Status            │ Stable, mature   │ GA (v1.0+), future   │
+  │ Protocol          │ HTTP/HTTPS only  │ HTTP, gRPC, TCP, UDP │
+  │ Traffic Split     │ Via annotations  │ Native (weights)     │
+  │ Multi-tenant      │ No               │ Yes (role-based)     │
+  │ Header matching   │ Via annotations  │ Native               │
+  │ Portability       │ Annotations vary │ Standardized API     │
+  │ Complexity        │ Lower            │ Higher               │
+  └───────────────────┴──────────────────┴──────────────────────┘
+```
+
+---
+
+## Pod Security Standards (PSS) & Pod Security Admission (PSA)
+
+**99. What replaced PodSecurityPolicies?**
+
+```
+Pod Security Standards — 3 levels:
+
+  ┌─────────────────────────────────────────────────────────┐
+  │  PRIVILEGED    │ No restrictions. For system components. │
+  │                │ kube-system pods, CNI, storage drivers  │
+  ├────────────────┼────────────────────────────────────────┤
+  │  BASELINE      │ Minimal restrictions. Prevents known   │
+  │                │ privilege escalations. Good default.    │
+  │                │ No hostNetwork, no privileged, no       │
+  │                │ hostPID, no hostIPC                     │
+  ├────────────────┼────────────────────────────────────────┤
+  │  RESTRICTED    │ Hardened. Best practices.              │
+  │                │ Must run as non-root, drop ALL caps,   │
+  │                │ read-only rootfs, no privilege escalate │
+  │                │ Use for all application workloads.     │
+  └────────────────┴────────────────────────────────────────┘
+```
+
+```bash
+# Apply Pod Security to a namespace
+kubectl label namespace production \
+  pod-security.kubernetes.io/enforce=restricted \
+  pod-security.kubernetes.io/warn=restricted \
+  pod-security.kubernetes.io/audit=restricted
+
+# Modes:
+# enforce = reject pods that violate
+# warn    = allow but show warning
+# audit   = allow but log to audit log
+```
+
+```yaml
+# Pod that passes RESTRICTED standard
+apiVersion: v1
+kind: Pod
+metadata:
+  name: secure-app
+spec:
+  securityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    - name: app
+      image: myapp:1.0
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        runAsUser: 1000
+        capabilities:
+          drop: ["ALL"]
+      resources:
+        limits:
+          memory: 256Mi
+          cpu: 500m
+        requests:
+          memory: 128Mi
+          cpu: 100m
+```
+
+---
+
+## RBAC Deep Dive
+
+**100. RBAC — Role, ClusterRole, RoleBinding, ClusterRoleBinding?**
+
+```yaml
+# Role — namespace-scoped permissions
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: production
+  name: pod-reader
+rules:
+  - apiGroups: [""]              # core API group
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list"]
+
+---
+# ClusterRole — cluster-wide (or reusable across namespaces)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: node-viewer
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list"]
+  - apiGroups: ["apiextensions.k8s.io"]  # CRD access
+    resources: ["customresourcedefinitions"]
+    verbs: ["get", "list"]
+
+---
+# RoleBinding — bind Role to user/group/serviceaccount
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: read-pods
+  namespace: production
+subjects:
+  - kind: User
+    name: vaibhav
+    apiGroup: rbac.authorization.k8s.io
+  - kind: ServiceAccount
+    name: ci-pipeline
+    namespace: ci
+roleRef:
+  kind: Role
+  name: pod-reader
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# ClusterRoleBinding — cluster-wide binding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: global-node-viewer
+subjects:
+  - kind: Group
+    name: platform-team
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: node-viewer
+  apiGroup: rbac.authorization.k8s.io
+```
+
+```bash
+# Check your permissions
+kubectl auth can-i create pods --namespace production       # yes/no
+kubectl auth can-i '*' '*'                                  # am I admin?
+kubectl auth can-i list pods --as=vaibhav                   # impersonate
+kubectl auth can-i create deployments --as=system:serviceaccount:ci:ci-pipeline
+```
