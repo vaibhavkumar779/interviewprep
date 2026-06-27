@@ -1,5 +1,3 @@
-Here is the complete, self-contained Markdown (.md) file capturing the architecture, flow, deployment configurations, and operational patterns for your multi-cluster, multi-namespace Kubernetes LLM Mesh deployment on AKS.
-You can save this content directly as aks-llm-mesh-architecture.md.
 
 # Production Reference: Cross-Cluster LLM Mesh via Kagent on AKS
 This document provides a production-grade architecture blueprint and deployment guide for building an **LLM & Agent Mesh** across multiple Azure Kubernetes Service (AKS) clusters. It utilizes **Kagent** and **Solo Kgateway** to manage cross-cluster model orchestration, multi-namespace delegation, and secure tool access via the Model Context Protocol (MCP).
@@ -214,7 +212,4 @@ kubectl run mesh-trace-check -n agent-mesh --context aks-westeu \
   "status": "SUCCESS"
 }
 ```
-
-Would you like to extend this documentation file by incorporating fallback resiliency pools for your OpenAI API keys, or should we add an Open Policy Agent (OPA) policy framework to block forbidden tools globally?
-
 
